@@ -1,0 +1,250 @@
+import { BrowserWindow } from "electrobun/bun";
+import os from "os";
+
+export interface DiscoveredDevice {
+  id: string;
+  name: string;
+  type: "laptop" | "phone" | "tablet" | "desktop";
+  ip: string;
+  port: number;
+  lastSeen: number;
+}
+
+const SERVICE_TYPE = "_drop-local._tcp";
+const SERVICE_PORT = 50002;
+
+class DeviceDiscoveryService {
+  private devices: Map<string, DiscoveredDevice> = new Map();
+  private server: any = null;
+  private broadcastInterval: Timer | null = null;
+  private cleanupInterval: Timer | null = null;
+
+  async start(): Promise<void> {
+    console.log("Starting device discovery service...");
+    
+    // Get local device info
+    const localDevice = this.getLocalDeviceInfo();
+    console.log("Local device:", localDevice);
+
+    // Start UDP broadcast server for device discovery
+    await this.startBroadcastServer();
+    
+    // Start periodic broadcast
+    this.startPeriodicBroadcast();
+    
+    // Start cleanup of stale devices
+    this.startCleanup();
+  }
+
+  private getLocalDeviceInfo(): DiscoveredDevice {
+    const hostname = os.hostname();
+    const platform = os.platform();
+    
+    let type: DiscoveredDevice["type"] = "desktop";
+    if (platform === "darwin") {
+      type = hostname.toLowerCase().includes("macbook") ? "laptop" : "desktop";
+    } else if (platform === "win32") {
+      type = "desktop";
+    } else if (platform === "linux") {
+      type = "desktop";
+    }
+
+    const localIp = this.getLocalIpAddress();
+
+    return {
+      id: this.generateDeviceId(),
+      name: hostname,
+      type,
+      ip: localIp,
+      port: SERVICE_PORT,
+      lastSeen: Date.now(),
+    };
+  }
+
+  private getLocalIpAddress(): string {
+    const interfaces = os.networkInterfaces();
+    
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name];
+      if (!iface) continue;
+      
+      for (const addr of iface) {
+        // Skip internal (loopback) and non-IPv4 addresses
+        if (addr.family === "IPv4" && !addr.internal) {
+          return addr.address;
+        }
+      }
+    }
+    
+    return "127.0.0.1";
+  }
+
+  private generateDeviceId(): string {
+    const interfaces = os.networkInterfaces();
+    let macAddress = "";
+    
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name];
+      if (!iface) continue;
+      
+      for (const addr of iface) {
+        if (addr.mac && addr.mac !== "00:00:00:00:00:00") {
+          macAddress = addr.mac;
+          break;
+        }
+      }
+      if (macAddress) break;
+    }
+    
+    return macAddress || `device-${Date.now()}`;
+  }
+
+  private async startBroadcastServer(): Promise<void> {
+    try {
+      const dgram = await import("dgram");
+      this.server = dgram.createSocket({ type: "udp4", reuseAddr: true });
+
+      this.server.on("message", (msg: Buffer, rinfo: any) => {
+        try {
+          const data = JSON.parse(msg.toString());
+          
+          if (data.type === "drop-local-announce") {
+            const device: DiscoveredDevice = {
+              id: data.id,
+              name: data.name,
+              type: data.deviceType || "desktop",
+              ip: rinfo.address,
+              port: data.port || SERVICE_PORT,
+              lastSeen: Date.now(),
+            };
+            
+            // Don't add ourselves
+            const localId = this.generateDeviceId();
+            if (device.id !== localId) {
+              this.devices.set(device.id, device);
+              console.log("Discovered device:", device);
+            }
+          }
+        } catch (err) {
+          console.error("Error parsing broadcast message:", err);
+        }
+      });
+
+      this.server.on("error", (err: Error) => {
+        console.error("Broadcast server error:", err);
+      });
+
+      this.server.bind(SERVICE_PORT, () => {
+        this.server.setBroadcast(true);
+        console.log(`Device discovery listening on port ${SERVICE_PORT}`);
+      });
+    } catch (err) {
+      console.error("Failed to start broadcast server:", err);
+    }
+  }
+
+  private getBroadcastAddress(): string {
+    const interfaces = os.networkInterfaces();
+    
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name];
+      if (!iface) continue;
+      
+      for (const addr of iface) {
+        if (addr.family === "IPv4" && !addr.internal && addr.netmask) {
+          // Calculate broadcast address from IP and netmask
+          const ip = addr.address.split('.').map(Number);
+          const mask = addr.netmask.split('.').map(Number);
+          const broadcast = ip.map((byte, i) => byte | (~mask[i] & 255));
+          return broadcast.join('.');
+        }
+      }
+    }
+    
+    // Fallback to local network broadcast
+    return "192.168.255.255";
+  }
+
+  private startPeriodicBroadcast(): void {
+    const broadcast = async () => {
+      try {
+        const dgram = await import("dgram");
+        const client = dgram.createSocket({ type: "udp4", reuseAddr: true });
+        
+        // Enable broadcast
+        client.bind(() => {
+          client.setBroadcast(true);
+          
+          const localDevice = this.getLocalDeviceInfo();
+          const message = JSON.stringify({
+            type: "drop-local-announce",
+            id: localDevice.id,
+            name: localDevice.name,
+            deviceType: localDevice.type,
+            port: SERVICE_PORT,
+            timestamp: Date.now(),
+          });
+
+          const buffer = Buffer.from(message);
+          const broadcastAddr = this.getBroadcastAddress();
+          
+          console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
+          
+          client.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err) => {
+            if (err) {
+              console.error("Broadcast error:", err);
+            }
+            client.close();
+          });
+        });
+      } catch (err) {
+        console.error("Failed to broadcast:", err);
+      }
+    };
+
+    // Broadcast immediately
+    broadcast();
+    
+    // Then broadcast every 5 seconds
+    this.broadcastInterval = setInterval(broadcast, 5000);
+  }
+
+  private startCleanup(): void {
+    this.cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const STALE_THRESHOLD = 15000; // 15 seconds
+
+      for (const [id, device] of this.devices.entries()) {
+        if (now - device.lastSeen > STALE_THRESHOLD) {
+          console.log("Removing stale device:", device.name);
+          this.devices.delete(id);
+        }
+      }
+    }, 5000);
+  }
+
+  getDevices(): DiscoveredDevice[] {
+    return Array.from(this.devices.values());
+  }
+
+  stop(): void {
+    if (this.broadcastInterval) {
+      clearInterval(this.broadcastInterval);
+      this.broadcastInterval = null;
+    }
+    
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+    
+    console.log("Device discovery service stopped");
+  }
+}
+
+export const deviceDiscovery = new DeviceDiscoveryService();
