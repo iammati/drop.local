@@ -7,6 +7,7 @@ import { StepIndicator } from "@/components/share/StepIndicator";
 import { ThemeToggle } from "@/components/share/ThemeToggle";
 import { ConnectedDevices } from "@/components/share/ConnectedDevices";
 import { useDeviceDiscovery } from "../hooks/useDeviceDiscovery";
+import { useFileTransfer } from "../hooks/useFileTransfer";
 
 export type SharedContent = {
   type: "file" | "text" | "image";
@@ -29,6 +30,7 @@ export type Device = {
 
 const Index = () => {
   const { devices, isLoading, hasPermission, error } = useDeviceDiscovery();
+  const { sendFiles, isTransferring, transfers } = useFileTransfer();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [contents, setContents] = useState<SharedContent[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<Device[]>([]);
@@ -68,8 +70,10 @@ const Index = () => {
   const handleProceedToSend = useCallback(() => {
     if (selectedDevices.length > 0) {
       setStep(3);
+      // Start the actual file transfer
+      sendFiles(contents, selectedDevices);
     }
-  }, [selectedDevices]);
+  }, [selectedDevices, contents, sendFiles]);
 
   const handleReset = useCallback(() => {
     setStep(1);
@@ -79,6 +83,10 @@ const Index = () => {
 
   const handleBackToContent = useCallback(() => {
     setStep(1);
+  }, []);
+
+  const handleBackToDeviceSelection = useCallback(() => {
+    setStep(2);
   }, []);
 
   const handleAddFiles = useCallback(() => {
@@ -160,7 +168,9 @@ const Index = () => {
                   contents={contents}
                   devices={selectedDevices}
                   onReset={handleReset}
-                  onUndo={handleUndo}
+                  onUndo={handleBackToDeviceSelection}
+                  transfers={transfers}
+                  isTransferring={isTransferring}
                 />
               </motion.div>
             )}

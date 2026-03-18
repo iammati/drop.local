@@ -61,22 +61,54 @@ class DeviceDiscoveryService {
     };
   }
 
-  private getLocalIpAddress(): string {
+  private getPrimaryNetworkInterface(): { ip: string; broadcast: string } | null {
     const interfaces = os.networkInterfaces();
     
+    // Prioritize common network interface names
+    const priorityNames = ['Wi-Fi', 'WiFi', 'Ethernet', 'en0', 'eth0', 'wlan0'];
+    
+    // First, try priority interfaces
+    for (const priorityName of priorityNames) {
+      const iface = interfaces[priorityName];
+      if (!iface) continue;
+      
+      for (const addr of iface) {
+        if (addr.family === "IPv4" && !addr.internal && addr.netmask) {
+          const ip = addr.address.split('.').map(Number);
+          const mask = addr.netmask.split('.').map(Number);
+          const broadcast = ip.map((byte, i) => byte | (~mask[i] & 255));
+          return {
+            ip: addr.address,
+            broadcast: broadcast.join('.')
+          };
+        }
+      }
+    }
+    
+    // Fallback: find any non-internal IPv4 interface
     for (const name of Object.keys(interfaces)) {
       const iface = interfaces[name];
       if (!iface) continue;
       
       for (const addr of iface) {
-        // Skip internal (loopback) and non-IPv4 addresses
-        if (addr.family === "IPv4" && !addr.internal) {
-          return addr.address;
+        if (addr.family === "IPv4" && !addr.internal && addr.netmask) {
+          const ip = addr.address.split('.').map(Number);
+          const mask = addr.netmask.split('.').map(Number);
+          const broadcast = ip.map((byte, i) => byte | (~mask[i] & 255));
+          return {
+            ip: addr.address,
+            broadcast: broadcast.join('.')
+          };
         }
       }
     }
     
-    return "127.0.0.1";
+    return null;
+  }
+
+  private getLocalIpAddress(): string {
+    const primary = this.getPrimaryNetworkInterface();
+    return primary?.ip || "127.0.0.1";
   }
 
   private generateDeviceId(): string {
@@ -144,25 +176,8 @@ class DeviceDiscoveryService {
   }
 
   private getBroadcastAddress(): string {
-    const interfaces = os.networkInterfaces();
-    
-    for (const name of Object.keys(interfaces)) {
-      const iface = interfaces[name];
-      if (!iface) continue;
-      
-      for (const addr of iface) {
-        if (addr.family === "IPv4" && !addr.internal && addr.netmask) {
-          // Calculate broadcast address from IP and netmask
-          const ip = addr.address.split('.').map(Number);
-          const mask = addr.netmask.split('.').map(Number);
-          const broadcast = ip.map((byte, i) => byte | (~mask[i] & 255));
-          return broadcast.join('.');
-        }
-      }
-    }
-    
-    // Fallback to local network broadcast
-    return "192.168.255.255";
+    const primary = this.getPrimaryNetworkInterface();
+    return primary?.broadcast || "255.255.255.255";
   }
 
   private startPeriodicBroadcast(): void {
@@ -225,6 +240,10 @@ class DeviceDiscoveryService {
 
   getDevices(): DiscoveredDevice[] {
     return Array.from(this.devices.values());
+  }
+
+  getLocalDeviceId(): string {
+    return this.generateDeviceId();
   }
 
   stop(): void {

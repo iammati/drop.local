@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, RotateCcw, Undo2 } from "lucide-react";
+import { Check, RotateCcw, Undo2, AlertCircle } from "lucide-react";
 import type { SharedContent, Device } from "@/pages/Index";
+import type { TransferProgress } from "../../lib/file-transfer";
 
 interface TransferStatusProps {
   contents: SharedContent[];
   devices: Device[];
   onReset: () => void;
   onUndo: () => void;
+  transfers?: TransferProgress[];
+  isTransferring?: boolean;
 }
 
 export const TransferStatus = ({
@@ -15,26 +18,45 @@ export const TransferStatus = ({
   devices,
   onReset,
   onUndo,
+  transfers = [],
+  isTransferring = false,
 }: TransferStatusProps) => {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
 
+  // Calculate overall progress from all transfers
   useEffect(() => {
-    const duration = 2000;
-    const interval = 30;
-    const step = 100 / (duration / interval);
-    const timer = setInterval(() => {
-      setProgress((p) => {
-        if (p >= 100) {
-          clearInterval(timer);
-          setDone(true);
-          return 100;
-        }
-        return Math.min(p + step + Math.random() * step * 0.5, 100);
-      });
-    }, interval);
-    return () => clearInterval(timer);
-  }, []);
+    if (transfers.length === 0) {
+      // Fallback to simulated progress if no real transfers
+      const duration = 2000;
+      const interval = 30;
+      const step = 100 / (duration / interval);
+      const timer = setInterval(() => {
+        setProgress((p) => {
+          if (p >= 100) {
+            clearInterval(timer);
+            setDone(true);
+            return 100;
+          }
+          return Math.min(p + step + Math.random() * step * 0.5, 100);
+        });
+      }, interval);
+      return () => clearInterval(timer);
+    } else {
+      // Calculate real progress
+      const totalProgress = transfers.reduce((sum, t) => sum + t.progress, 0);
+      const avgProgress = transfers.length > 0 ? totalProgress / transfers.length : 0;
+      setProgress(avgProgress);
+      
+      // Check if all transfers are completed
+      const allCompleted = transfers.every(t => t.status === "completed");
+      const anyFailed = transfers.some(t => t.status === "failed");
+      
+      if (allCompleted && !anyFailed) {
+        setDone(true);
+      }
+    }
+  }, [transfers]);
 
   return (
     <div className="flex flex-col items-center space-y-6">

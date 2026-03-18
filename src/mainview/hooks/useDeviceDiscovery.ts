@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Device } from "../pages/Index";
+import { electroview } from "../electroview";
 
 interface DiscoveredDevice {
   id: string;
@@ -20,20 +21,23 @@ export function useDeviceDiscovery() {
 
   useEffect(() => {
     let pollInterval: Timer | null = null;
+    let retryTimeout: Timer | null = null;
 
     const initDiscovery = async () => {
       try {
-        // Check if we're in Electrobun environment with device discovery
-        const deviceDiscovery = (globalThis as any).__deviceDiscovery;
+        console.log("✓ Initializing device discovery with Electroview...");
         
-        if (deviceDiscovery && typeof deviceDiscovery.getDevices === "function") {
-          console.log("Device discovery service found!");
+        // Check if we're in Electrobun environment
+        if (electroview && electroview.rpc && electroview.rpc.request) {
+          console.log("✓ Electrobun RPC found! Starting device polling...");
           
           // Start polling for devices
-          const pollDevices = () => {
+          const pollDevices = async () => {
             try {
-              const discoveredDevices: DiscoveredDevice[] = deviceDiscovery.getDevices();
+              const discoveredDevices: DiscoveredDevice[] = await electroview.rpc.request.getDevices();
               const now = Date.now();
+              
+              console.log("✓ Polled devices:", discoveredDevices.length, "found");
               
               // Convert to Device format with isActive status
               const formattedDevices: Device[] = discoveredDevices.map((d: DiscoveredDevice) => ({
@@ -48,25 +52,25 @@ export function useDeviceDiscovery() {
               setDevices(formattedDevices);
               setIsLoading(false);
             } catch (err) {
-              console.error("Error fetching devices:", err);
+              console.error("✗ Error fetching devices:", err);
               setError("Failed to fetch devices");
               setIsLoading(false);
             }
           };
 
           // Poll immediately
-          pollDevices();
+          await pollDevices();
 
           // Then poll every 2 seconds
           pollInterval = setInterval(pollDevices, 2000);
         } else {
-          // Not in Electrobun - no devices in web dev mode
-          console.log("Not in Electrobun environment, no devices available");
+          // Not in Electrobun - no devices available
+          console.log("⟳ Not in Electrobun environment, no devices available");
           setDevices([]);
           setIsLoading(false);
         }
       } catch (err) {
-        console.error("Error initializing device discovery:", err);
+        console.error("✗ Error initializing device discovery:", err);
         setError("Failed to initialize device discovery");
         setIsLoading(false);
       }
@@ -77,6 +81,9 @@ export function useDeviceDiscovery() {
     return () => {
       if (pollInterval) {
         clearInterval(pollInterval);
+      }
+      if (retryTimeout) {
+        clearTimeout(retryTimeout);
       }
     };
   }, []);
