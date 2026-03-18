@@ -1,7 +1,12 @@
 /**
  * WebRTC Signaling Server for P2P file transfers
  * Handles signaling between peers without seeing the actual data
+ * Uses UDP to send signals over the network to remote devices
  */
+
+import dgram from "dgram";
+
+const SIGNAL_PORT = 50003; // Different from device discovery port
 
 interface SignalingMessage {
   type: "offer" | "answer" | "ice-candidate";
@@ -23,6 +28,60 @@ interface PendingTransfer {
 class TransferSignalingServer {
   private pendingTransfers: Map<string, PendingTransfer> = new Map();
   private callbacks: Map<string, (message: SignalingMessage) => void> = new Map();
+  private udpServer: dgram.Socket | null = null;
+  private deviceIpMap: Map<string, string> = new Map(); // deviceId -> IP address
+
+  /**
+   * Start UDP server to receive signals from remote devices
+   */
+  async start(): Promise<void> {
+    this.udpServer = dgram.createSocket("udp4");
+
+    this.udpServer.on("message", (msg, rinfo) => {
+      try {
+        const message = JSON.parse(msg.toString()) as SignalingMessage & { messageType: string };
+        
+        if (message.messageType === "webrtc-signal") {
+          console.log(`📥 Received signal from ${rinfo.address}:`, message.type);
+          
+          // Forward to local callback
+          const callback = this.callbacks.get(message.to);
+          if (callback) {
+            callback(message);
+          } else {
+            console.warn(`No callback registered for device ${message.to}`);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to parse signaling message:", error);
+      }
+    });
+
+    this.udpServer.on("error", (err) => {
+      console.error("Signaling server error:", err);
+    });
+
+    this.udpServer.bind(SIGNAL_PORT, () => {
+      console.log(`Signaling server listening on port ${SIGNAL_PORT}`);
+    });
+  }
+
+  /**
+   * Stop the signaling server
+   */
+  async stop(): Promise<void> {
+    if (this.udpServer) {
+      this.udpServer.close();
+      this.udpServer = null;
+    }
+  }
+
+  /**
+   * Update device IP mapping (called when devices are discovered)
+   */
+  updateDeviceIp(deviceId: string, ip: string) {
+    this.deviceIpMap.set(deviceId, ip);
+  }
 
   /**
    * Register a device to receive signaling messages
@@ -73,13 +132,38 @@ class TransferSignalingServer {
         break;
     }
 
-    // Forward message to recipient
-    const recipientCallback = this.callbacks.get(to);
-    if (recipientCallback) {
-      recipientCallback(message);
+    // Send signal over network to recipient
+    const recipientIp = this.deviceIpMap.get(to);
+    if (recipientIp) {
+      this.sendSignalOverNetwork(message, recipientIp);
     } else {
-      console.warn(`Recipient ${to} not registered for signaling`);
+      console.warn(`No IP address found for recipient ${to}`);
     }
+  }
+
+  /**
+   * Send signal over UDP to remote device
+   */
+  private sendSignalOverNetwork(message: SignalingMessage, recipientIp: string) {
+    if (!this.udpServer) {
+      console.error("UDP server not started");
+      return;
+    }
+
+    const payload = JSON.stringify({
+      ...message,
+      messageType: "webrtc-signal",
+    });
+
+    const buffer = Buffer.from(payload);
+
+    this.udpServer.send(buffer, SIGNAL_PORT, recipientIp, (err) => {
+      if (err) {
+        console.error(`Failed to send signal to ${recipientIp}:`, err);
+      } else {
+        console.log(`📤 Sent ${message.type} signal to ${recipientIp}:${SIGNAL_PORT}`);
+      }
+    });
   }
 
   /**

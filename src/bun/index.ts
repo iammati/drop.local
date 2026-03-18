@@ -119,6 +119,10 @@ mainWindowRef = mainWindow;
 // Show the window
 mainWindow.show();
 
+// Start signaling server
+console.log("Starting signaling server...");
+await signalingServer.start();
+
 // Start device discovery service
 console.log("Starting device discovery...");
 await deviceDiscovery.start();
@@ -126,12 +130,13 @@ await deviceDiscovery.start();
 // Register this device with signaling server to receive transfer signals
 const localDeviceId = getLocalDeviceId();
 signalingServer.registerDevice(localDeviceId, (signal) => {
-	console.log("Received signal for local device:", signal);
+	console.log("📥 Received signal for local device:", signal.type, "from", signal.from);
 	
 	// Forward signal to frontend
 	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
 		try {
 			mainWindowRef.webview.rpc.send.onTransferSignal(signal);
+			console.log("✓ Signal forwarded to frontend");
 		} catch (error) {
 			console.error("Failed to forward signal to frontend:", error);
 		}
@@ -140,6 +145,11 @@ signalingServer.registerDevice(localDeviceId, (signal) => {
 
 // Forward device events to frontend in real-time
 deviceDiscovery.onDeviceEvent((event) => {
+	// Update signaling server with device IP
+	if (event.type === "device-joined" || event.type === "device-updated") {
+		signalingServer.updateDeviceIp(event.device.id, event.device.ip);
+	}
+	
 	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
 		try {
 			// Send event to frontend via RPC message
@@ -154,19 +164,22 @@ deviceDiscovery.onDeviceEvent((event) => {
 process.on("SIGINT", async () => {
 	console.log("\n🛑 Shutting down gracefully...");
 	await deviceDiscovery.stop();
+	await signalingServer.stop();
 	process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
 	console.log("\n🛑 Shutting down gracefully...");
 	await deviceDiscovery.stop();
+	await signalingServer.stop();
 	process.exit(0);
 });
 
 // Handle window close
 mainWindow.on("close", async () => {
-	console.log("Window closing, stopping device discovery...");
+	console.log("Window closing, stopping services...");
 	await deviceDiscovery.stop();
+	await signalingServer.stop();
 });
 
 console.log("React Tailwind Vite app started!");
