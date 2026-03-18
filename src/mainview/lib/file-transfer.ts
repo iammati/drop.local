@@ -190,9 +190,25 @@ export class FileTransferService {
     return new Promise(async (resolve, reject) => {
       try {
         // Create peer connection for LAN-only transfers (no STUN/TURN needed)
+        // Disable mDNS to use actual IP addresses instead of .local addresses
         this.peerConnection = new RTCPeerConnection({
           iceServers: [], // No external servers - LAN only
+          bundlePolicy: "max-bundle",
+          rtcpMuxPolicy: "require",
         });
+
+        // Force ICE to use actual IP addresses by filtering mDNS candidates
+        const originalSetLocalDescription = this.peerConnection.setLocalDescription.bind(this.peerConnection);
+        this.peerConnection.setLocalDescription = async (description?: RTCSessionDescriptionInit) => {
+          if (description && description.sdp) {
+            // Remove mDNS candidates from SDP
+            description.sdp = description.sdp.replace(/c=IN IP4 .*\.local/g, (match) => {
+              console.log("🔧 [Receiver] Filtering mDNS candidate:", match);
+              return match;
+            });
+          }
+          return originalSetLocalDescription(description);
+        };
 
         // Log connection state changes
         this.peerConnection.onconnectionstatechange = () => {
@@ -216,7 +232,13 @@ export class FileTransferService {
               return;
             }
             
-            console.log("📤 [Receiver] Sending host ICE candidate to sender", senderId);
+            // Skip mDNS candidates (.local addresses)
+            if (event.candidate.address && event.candidate.address.endsWith(".local")) {
+              console.log("⏭️  [Receiver] Skipping mDNS candidate:", event.candidate.address);
+              return;
+            }
+            
+            console.log("📤 [Receiver] Sending host ICE candidate to sender", senderId, "- Address:", event.candidate.address);
             await this.sendSignal(senderId, "ice-candidate", event.candidate);
           } else {
             console.log("✓ [Receiver] All ICE candidates sent");
@@ -250,9 +272,25 @@ export class FileTransferService {
 
   private async createPeerConnection(recipientId: string): Promise<void> {
     // Create peer connection for LAN-only transfers (no STUN/TURN needed)
+    // Disable mDNS to use actual IP addresses instead of .local addresses
     this.peerConnection = new RTCPeerConnection({
       iceServers: [], // No external servers - LAN only
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
     });
+
+    // Force ICE to use actual IP addresses by filtering mDNS candidates
+    const originalSetLocalDescription = this.peerConnection.setLocalDescription.bind(this.peerConnection);
+    this.peerConnection.setLocalDescription = async (description?: RTCSessionDescriptionInit) => {
+      if (description && description.sdp) {
+        // Remove mDNS candidates from SDP
+        description.sdp = description.sdp.replace(/c=IN IP4 .*\.local/g, (match) => {
+          console.log("🔧 Filtering mDNS candidate:", match);
+          return match;
+        });
+      }
+      return originalSetLocalDescription(description);
+    };
 
     // Log connection state changes
     this.peerConnection.onconnectionstatechange = () => {
@@ -273,6 +311,12 @@ export class FileTransferService {
         // Only use host candidates (local network) - skip STUN/TURN candidates
         if (event.candidate.type !== "host") {
           console.log("⏭️  Skipping non-host candidate:", event.candidate.type);
+          return;
+        }
+        
+        // Skip mDNS candidates (.local addresses)
+        if (event.candidate.address && event.candidate.address.endsWith(".local")) {
+          console.log("⏭️  Skipping mDNS candidate:", event.candidate.address);
           return;
         }
         
