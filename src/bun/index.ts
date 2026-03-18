@@ -103,6 +103,9 @@ const mainWindow = new BrowserWindow({
 // Store window reference
 mainWindowRef = mainWindow;
 
+// Show the window
+mainWindow.show();
+
 // Start device discovery service
 console.log("Starting device discovery...");
 await deviceDiscovery.start();
