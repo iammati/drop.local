@@ -17,7 +17,8 @@ type DeviceEventCallback = (event: {
 
 const SERVICE_TYPE = "_drop-local._tcp";
 const SERVICE_PORT = 50002;
-const STALE_THRESHOLD = 15000; // 15 seconds - remove devices not seen in this time
+const BROADCAST_INTERVAL = 2000; // 2 seconds - broadcast presence (aggressive for LAN)
+const STALE_THRESHOLD = 6000; // 6 seconds - remove devices not seen (3x broadcast interval)
 
 class DeviceDiscoveryService {
   private devices: Map<string, DiscoveredDevice> = new Map();
@@ -146,8 +147,20 @@ class DeviceDiscoveryService {
       this.server.on("message", (msg: Buffer, rinfo: any) => {
         try {
           const data = JSON.parse(msg.toString());
-          
-          if (data.type === "drop-local-announce") {
+          console.log(`Received message from ${rinfo.address}:${rinfo.port}:`, data);
+        
+          if (data.type === "drop-local-goodbye") {
+            // Device is gracefully disconnecting
+            const localId = this.generateDeviceId();
+            if (data.id !== localId) {
+              const device = this.devices.get(data.id);
+              if (device) {
+                console.log("✗ Device left (goodbye):", data.name);
+                this.devices.delete(data.id);
+                this.emitDeviceEvent("device-left", device);
+              }
+            }
+          } else if (data.type === "drop-local-announce") {
             const device: DiscoveredDevice = {
               id: data.id,
               name: data.name,
@@ -298,7 +311,50 @@ class DeviceDiscoveryService {
     }
   }
 
-  stop(): void {
+  /**
+   * Send goodbye broadcast to notify other devices we're leaving
+   */
+  private async sendGoodbyeBroadcast(): Promise<void> {
+    try {
+      const dgram = await import("dgram");
+      const client = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      
+      client.bind(() => {
+        client.setBroadcast(true);
+        
+        const localDevice = this.getLocalDeviceInfo();
+        const message = JSON.stringify({
+          type: "drop-local-goodbye",
+          id: localDevice.id,
+          name: localDevice.name,
+        });
+        
+        const buffer = Buffer.from(message);
+        const broadcastAddr = this.getBroadcastAddress();
+        
+        console.log(`📡 Sending goodbye broadcast to ${broadcastAddr}:${SERVICE_PORT}`);
+        
+        client.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err) => {
+          if (err) {
+            console.error("Goodbye broadcast error:", err);
+          }
+          client.close();
+        });
+      });
+    } catch (err) {
+      console.error("Failed to send goodbye broadcast:", err);
+    }
+  }
+
+  async stop(): Promise<void> {
+    console.log("Stopping device discovery service...");
+    
+    // Send goodbye broadcast before shutting down
+    await this.sendGoodbyeBroadcast();
+    
+    // Wait a bit for goodbye to be sent
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     if (this.broadcastInterval) {
       clearInterval(this.broadcastInterval);
       this.broadcastInterval = null;

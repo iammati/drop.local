@@ -119,4 +119,23 @@ deviceDiscovery.onDeviceEvent((event) => {
 	}
 });
 
+// Graceful shutdown on app close
+process.on("SIGINT", async () => {
+	console.log("\n🛑 Shutting down gracefully...");
+	await deviceDiscovery.stop();
+	process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+	console.log("\n🛑 Shutting down gracefully...");
+	await deviceDiscovery.stop();
+	process.exit(0);
+});
+
+// Handle window close
+mainWindow.on("close", async () => {
+	console.log("Window closing, stopping device discovery...");
+	await deviceDiscovery.stop();
+});
+
 console.log("React Tailwind Vite app started!");
