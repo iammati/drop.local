@@ -113,8 +113,10 @@ export function useFileTransfer() {
 
   const sendFiles = useCallback(
     async (contents: SharedContent[], devices: Device[]) => {
+      console.log("🚀 sendFiles called with:", contents.length, "contents,", devices.length, "devices");
+      
       if (!electroview || !electroview.rpc) {
-        console.error("Electroview not available");
+        console.error("✗ Electroview not available");
         return;
       }
 
@@ -122,10 +124,12 @@ export function useFileTransfer() {
 
       try {
         for (const device of devices) {
+          console.log(`📱 Processing device: ${device.name} (${device.id})`);
           for (const content of contents) {
+            console.log(`📄 Processing content: ${content.name} (${content.type})`);
             // Only handle file transfers for now
             if (content.type === "file" && content.data instanceof File) {
-              console.log(`Starting transfer of ${content.name} to ${device.name}`);
+              console.log(`📁 Starting file transfer of ${content.name} to ${device.name}`);
 
               const transferService = new FileTransferService();
               
@@ -156,7 +160,7 @@ export function useFileTransfer() {
               }
             } else if (content.type === "text") {
               // Handle text transfer
-              console.log(`Sending text to ${device.name}:`, content.data);
+              console.log(`💬 Starting text transfer to ${device.name}:`, content.data);
               
               // Create a text file from the text content
               const textBlob = new Blob([content.data as string], { type: "text/plain" });

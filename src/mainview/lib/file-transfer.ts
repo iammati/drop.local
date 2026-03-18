@@ -259,16 +259,26 @@ export class FileTransferService {
   }
 
   private async sendSignal(to: string, type: string, data: any): Promise<void> {
+    console.log(`📤 Sending signal: ${type} to ${to}, transferId: ${this.transferId}`);
     const electroview = (window as any).electroview;
     if (electroview && electroview.rpc) {
-      await electroview.rpc.request.sendSignal({
-        to,
-        signal: {
-          type,
-          transferId: this.transferId,
-          data,
-        },
-      });
+      console.log("✓ Electroview RPC available, sending signal...");
+      try {
+        await electroview.rpc.request.sendSignal({
+          to,
+          signal: {
+            type,
+            transferId: this.transferId,
+            data,
+          },
+        });
+        console.log(`✓ Signal ${type} sent successfully`);
+      } catch (error) {
+        console.error(`✗ Failed to send signal ${type}:`, error);
+        throw error;
+      }
+    } else {
+      console.error("✗ Electroview RPC not available!");
     }
   }
 

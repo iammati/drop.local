@@ -70,14 +70,22 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 			},
 			// Send signaling message to another device
 			sendSignal: async ({ to, signal }: { to: string; signal: any }) => {
-				console.log("Sending signal to device:", to);
+				const localId = getLocalDeviceId();
+				console.log(`📤 Backend received sendSignal request:`);
+				console.log(`   From: ${localId}`);
+				console.log(`   To: ${to}`);
+				console.log(`   Type: ${signal.type}`);
+				console.log(`   TransferId: ${signal.transferId}`);
+				
 				signalingServer.handleSignal({
 					type: signal.type,
 					transferId: signal.transferId,
-					from: getLocalDeviceId(),
+					from: localId,
 					to,
 					data: signal.data,
 				});
+				
+				console.log(`✓ Signal forwarded to signaling server`);
 				return { success: true };
 			},
 		},
