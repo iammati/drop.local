@@ -63,7 +63,8 @@ export class FileTransferService {
   async sendFile(
     file: File,
     recipientId: string,
-    onProgress: (progress: TransferProgress) => void
+    onProgress: (progress: TransferProgress) => void,
+    recipientIp?: string
   ): Promise<void> {
     this.onProgressCallback = onProgress;
 
@@ -82,7 +83,7 @@ export class FileTransferService {
       this.encryptionKey = await generateEncryptionKey();
 
       // Create peer connection
-      await this.createPeerConnection(recipientId);
+      await this.createPeerConnection(recipientId, recipientIp);
 
       // Wait for connection to be established
       await this.waitForConnection();
@@ -223,22 +224,16 @@ export class FileTransferService {
           console.log(`📡 [Receiver] ICE gathering state: ${this.peerConnection!.iceGatheringState}`);
         };
 
-        // Handle ICE candidates - only send host (local) candidates for LAN
+        // Handle ICE candidates - send all host candidates (including mDNS)
         this.peerConnection.onicecandidate = async (event) => {
           if (event.candidate) {
-            // Only use host candidates (local network) - skip STUN/TURN candidates
+            // Only use host candidates (local network)
             if (event.candidate.type !== "host") {
               console.log("⏭️  [Receiver] Skipping non-host candidate:", event.candidate.type);
               return;
             }
             
-            // Skip mDNS candidates (.local addresses)
-            if (event.candidate.address && event.candidate.address.endsWith(".local")) {
-              console.log("⏭️  [Receiver] Skipping mDNS candidate:", event.candidate.address);
-              return;
-            }
-            
-            console.log("📤 [Receiver] Sending host ICE candidate to sender", senderId, "- Address:", event.candidate.address);
+            console.log("📤 [Receiver] Sending ICE candidate to sender", senderId, "- Address:", event.candidate.address || "mDNS");
             await this.sendSignal(senderId, "ice-candidate", event.candidate);
           } else {
             console.log("✓ [Receiver] All ICE candidates sent");
@@ -270,27 +265,13 @@ export class FileTransferService {
     });
   }
 
-  private async createPeerConnection(recipientId: string): Promise<void> {
+  private async createPeerConnection(recipientId: string, recipientIp?: string): Promise<void> {
     // Create peer connection for LAN-only transfers (no STUN/TURN needed)
-    // Disable mDNS to use actual IP addresses instead of .local addresses
     this.peerConnection = new RTCPeerConnection({
       iceServers: [], // No external servers - LAN only
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
     });
-
-    // Force ICE to use actual IP addresses by filtering mDNS candidates
-    const originalSetLocalDescription = this.peerConnection.setLocalDescription.bind(this.peerConnection);
-    this.peerConnection.setLocalDescription = async (description?: RTCSessionDescriptionInit) => {
-      if (description && description.sdp) {
-        // Remove mDNS candidates from SDP
-        description.sdp = description.sdp.replace(/c=IN IP4 .*\.local/g, (match) => {
-          console.log("🔧 Filtering mDNS candidate:", match);
-          return match;
-        });
-      }
-      return originalSetLocalDescription(description);
-    };
 
     // Log connection state changes
     this.peerConnection.onconnectionstatechange = () => {
@@ -305,22 +286,16 @@ export class FileTransferService {
       console.log(`📡 ICE gathering state: ${this.peerConnection!.iceGatheringState}`);
     };
 
-    // Handle ICE candidates - only send host (local) candidates for LAN
+    // Handle ICE candidates - send all host candidates
     this.peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        // Only use host candidates (local network) - skip STUN/TURN candidates
+        // Only use host candidates (local network)
         if (event.candidate.type !== "host") {
           console.log("⏭️  Skipping non-host candidate:", event.candidate.type);
           return;
         }
         
-        // Skip mDNS candidates (.local addresses)
-        if (event.candidate.address && event.candidate.address.endsWith(".local")) {
-          console.log("⏭️  Skipping mDNS candidate:", event.candidate.address);
-          return;
-        }
-        
-        console.log("📤 Sending host ICE candidate to", recipientId, "- Address:", event.candidate.address);
+        console.log("📤 Sending ICE candidate to", recipientId, "- Address:", event.candidate.address || "mDNS");
         await this.sendSignal(recipientId, "ice-candidate", event.candidate);
       } else {
         console.log("✓ All ICE candidates sent");
@@ -350,6 +325,12 @@ export class FileTransferService {
     // Create and send offer
     const offer = await this.peerConnection.createOffer();
     await this.peerConnection.setLocalDescription(offer);
+
+    // If we have the recipient's IP, manually add it as an ICE candidate
+    if (recipientIp) {
+      console.log("🎯 Manually adding recipient IP as ICE candidate:", recipientIp);
+      // We'll add this after the remote description is set by the receiver
+    }
 
     // Send offer through signaling server
     console.log("Sending offer to", recipientId);

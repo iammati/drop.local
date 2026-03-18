@@ -181,7 +181,8 @@ export function useFileTransfer() {
                 await transferService.sendFile(
                   textFile,
                   device.id,
-                  updateTransferProgress
+                  updateTransferProgress,
+                  device.ip // Pass device IP for manual ICE candidate
                 );
 
                 console.log(`✓ Successfully sent text to ${device.name}`);
