@@ -6,6 +6,7 @@ import { TransferStatus } from "@/components/share/TransferStatus";
 import { StepIndicator } from "@/components/share/StepIndicator";
 import { ThemeToggle } from "@/components/share/ThemeToggle";
 import { ConnectedDevices } from "@/components/share/ConnectedDevices";
+import { MessageToast } from "../components/share/MessageToast";
 import { useDeviceDiscovery } from "../hooks/useDeviceDiscovery";
 import { useFileTransfer } from "../hooks/useFileTransfer";
 
@@ -30,7 +31,7 @@ export type Device = {
 
 const Index = () => {
   const { devices, isLoading, hasPermission, error } = useDeviceDiscovery();
-  const { sendFiles, isTransferring, transfers } = useFileTransfer();
+  const { sendFiles, isTransferring, transfers, receivedMessages, clearMessage } = useFileTransfer();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [contents, setContents] = useState<SharedContent[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<Device[]>([]);
@@ -200,6 +201,9 @@ const Index = () => {
           </div>
         )}
       </motion.div>
+
+      {/* Message notifications */}
+      <MessageToast messages={receivedMessages} onDismiss={clearMessage} />
     </div>
   );
 };

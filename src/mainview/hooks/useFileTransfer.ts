@@ -3,11 +3,21 @@ import { FileTransferService, type TransferProgress } from "../lib/file-transfer
 import { electroview, onTransferSignal } from "../electroview";
 import type { Device, SharedContent } from "../pages/Index";
 
+export interface ReceivedMessage {
+  id: string;
+  from: string;
+  content: string;
+  fileName: string;
+  timestamp: number;
+  type: "text" | "file";
+}
+
 export function useFileTransfer() {
   const [transfers, setTransfers] = useState<Map<string, TransferProgress>>(new Map());
   const [isTransferring, setIsTransferring] = useState(false);
   const [activeReceivers, setActiveReceivers] = useState<Map<string, FileTransferService>>(new Map());
   const [activeSenders, setActiveSenders] = useState<Map<string, FileTransferService>>(new Map());
+  const [receivedMessages, setReceivedMessages] = useState<ReceivedMessage[]>([]);
 
   const updateTransferProgress = useCallback((progress: TransferProgress) => {
     setTransfers((prev) => {
@@ -40,17 +50,39 @@ export function useFileTransfer() {
             updateTransferProgress
           );
 
-          console.log("✓ File received:", receivedFile.name);
+          console.log("✓ File received:", receivedFile.name, receivedFile.type);
           
-          // Auto-download the received file
-          const url = URL.createObjectURL(receivedFile);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = receivedFile.name;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          // Check if it's a text message
+          const isTextMessage = receivedFile.type === "text/plain" || receivedFile.name.endsWith(".txt");
+          
+          if (isTextMessage) {
+            // Read text content and display it
+            const textContent = await receivedFile.text();
+            
+            const message: ReceivedMessage = {
+              id: signal.transferId,
+              from: signal.from,
+              content: textContent,
+              fileName: receivedFile.name,
+              timestamp: Date.now(),
+              type: "text",
+            };
+            
+            setReceivedMessages((prev) => [...prev, message]);
+            console.log("✓ Text message received:", textContent);
+          } else {
+            // Auto-download regular files
+            const url = URL.createObjectURL(receivedFile);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = receivedFile.name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            console.log("✓ File downloaded:", receivedFile.name);
+          }
 
           // Cleanup
           setActiveReceivers((prev) => {
@@ -215,10 +247,16 @@ export function useFileTransfer() {
     return Array.from(transfers.values());
   }, [transfers]);
 
+  const clearMessage = useCallback((messageId: string) => {
+    setReceivedMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+  }, []);
+
   return {
     sendFiles,
     isTransferring,
     transfers: getAllTransfers(),
     getTransferProgress,
+    receivedMessages,
+    clearMessage,
   };
 }
