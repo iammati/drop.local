@@ -39,6 +39,8 @@ export class FileTransferService {
   private encryptionKey: CryptoKey | null = null;
   private onProgressCallback: ((progress: TransferProgress) => void) | null = null;
   private transferId: string;
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
+  private remoteDescriptionSet: boolean = false;
 
   constructor() {
     this.transferId = generateTransferId();
@@ -248,6 +250,22 @@ export class FileTransferService {
 
         // Set remote offer
         await this.peerConnection.setRemoteDescription(offer);
+        this.remoteDescriptionSet = true;
+        console.log("✓ Remote description set");
+
+        // Process any pending ICE candidates
+        if (this.pendingIceCandidates.length > 0) {
+          console.log(`📦 Processing ${this.pendingIceCandidates.length} pending ICE candidates`);
+          for (const candidate of this.pendingIceCandidates) {
+            try {
+              await this.peerConnection.addIceCandidate(candidate);
+              console.log("✓ Pending ICE candidate added");
+            } catch (error) {
+              console.error("✗ Failed to add pending ICE candidate:", error);
+            }
+          }
+          this.pendingIceCandidates = [];
+        }
 
         // Create answer
         const answer = await this.peerConnection.createAnswer();
@@ -369,17 +387,46 @@ export class FileTransferService {
   async handleAnswer(answer: RTCSessionDescriptionInit): Promise<void> {
     if (this.peerConnection) {
       await this.peerConnection.setRemoteDescription(answer);
+      this.remoteDescriptionSet = true;
       console.log("✓ Answer received and set");
+
+      // Process any pending ICE candidates
+      if (this.pendingIceCandidates.length > 0) {
+        console.log(`📦 Processing ${this.pendingIceCandidates.length} pending ICE candidates`);
+        for (const candidate of this.pendingIceCandidates) {
+          try {
+            await this.peerConnection.addIceCandidate(candidate);
+            console.log("✓ Pending ICE candidate added");
+          } catch (error) {
+            console.error("✗ Failed to add pending ICE candidate:", error);
+          }
+        }
+        this.pendingIceCandidates = [];
+      }
     }
   }
 
   /**
-   * Handle ICE candidate
+   * Handle ICE candidate from receiver (for sender)
    */
   async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
-    if (this.peerConnection) {
+    if (!this.peerConnection) {
+      console.warn("⚠️  No peer connection - ignoring ICE candidate");
+      return;
+    }
+
+    // Queue candidates if remote description not set yet
+    if (!this.remoteDescriptionSet) {
+      console.log("📦 Queueing ICE candidate (remote description not set yet)");
+      this.pendingIceCandidates.push(candidate);
+      return;
+    }
+
+    try {
       await this.peerConnection.addIceCandidate(candidate);
       console.log("✓ ICE candidate added");
+    } catch (error) {
+      console.error("✗ Failed to add ICE candidate:", error);
     }
   }
 
