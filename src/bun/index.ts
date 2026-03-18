@@ -81,7 +81,12 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 				return { success: true };
 			},
 		},
-		messages: {},
+		messages: {
+			// Receive signaling messages from frontend
+			onSignalReceived: (signal: any) => {
+				console.log("Frontend received signal:", signal);
+			},
+		},
 	},
 });
 
@@ -109,6 +114,21 @@ mainWindow.show();
 // Start device discovery service
 console.log("Starting device discovery...");
 await deviceDiscovery.start();
+
+// Register this device with signaling server to receive transfer signals
+const localDeviceId = getLocalDeviceId();
+signalingServer.registerDevice(localDeviceId, (signal) => {
+	console.log("Received signal for local device:", signal);
+	
+	// Forward signal to frontend
+	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
+		try {
+			mainWindowRef.webview.rpc.send.onTransferSignal(signal);
+		} catch (error) {
+			console.error("Failed to forward signal to frontend:", error);
+		}
+	}
+});
 
 // Forward device events to frontend in real-time
 deviceDiscovery.onDeviceEvent((event) => {

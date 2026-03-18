@@ -44,6 +44,10 @@ export class FileTransferService {
     this.transferId = generateTransferId();
   }
 
+  getTransferId(): string {
+    return this.transferId;
+  }
+
   /**
    * Send file to a remote peer
    * 
@@ -190,6 +194,14 @@ export class FileTransferService {
           iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
         });
 
+        // Handle ICE candidates
+        this.peerConnection.onicecandidate = async (event) => {
+          if (event.candidate) {
+            console.log("Sending ICE candidate to sender", senderId);
+            await this.sendSignal(senderId, "ice-candidate", event.candidate);
+          }
+        };
+
         // Handle incoming data channel
         this.peerConnection.ondatachannel = (event) => {
           this.dataChannel = event.channel;
@@ -204,7 +216,8 @@ export class FileTransferService {
         await this.peerConnection.setLocalDescription(answer);
 
         // Send answer back through signaling server
-        // (This would be handled by the signaling mechanism)
+        console.log("Sending answer to sender", senderId);
+        await this.sendSignal(senderId, "answer", answer);
 
         console.log("✓ Ready to receive file");
       } catch (error) {
@@ -219,6 +232,14 @@ export class FileTransferService {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
 
+    // Handle ICE candidates
+    this.peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        console.log("Sending ICE candidate to", recipientId);
+        await this.sendSignal(recipientId, "ice-candidate", event.candidate);
+      }
+    };
+
     // Create data channel
     this.dataChannel = this.peerConnection.createDataChannel("fileTransfer", {
       ordered: true,
@@ -230,8 +251,45 @@ export class FileTransferService {
     const offer = await this.peerConnection.createOffer();
     await this.peerConnection.setLocalDescription(offer);
 
-    // In a real implementation, send offer through signaling server
-    console.log("✓ Peer connection created, offer ready");
+    // Send offer through signaling server
+    console.log("Sending offer to", recipientId);
+    await this.sendSignal(recipientId, "offer", offer);
+    
+    console.log("✓ Peer connection created, offer sent");
+  }
+
+  private async sendSignal(to: string, type: string, data: any): Promise<void> {
+    const electroview = (window as any).electroview;
+    if (electroview && electroview.rpc) {
+      await electroview.rpc.request.sendSignal({
+        to,
+        signal: {
+          type,
+          transferId: this.transferId,
+          data,
+        },
+      });
+    }
+  }
+
+  /**
+   * Handle answer from receiver (for sender)
+   */
+  async handleAnswer(answer: RTCSessionDescriptionInit): Promise<void> {
+    if (this.peerConnection) {
+      await this.peerConnection.setRemoteDescription(answer);
+      console.log("✓ Answer received and set");
+    }
+  }
+
+  /**
+   * Handle ICE candidate
+   */
+  async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (this.peerConnection) {
+      await this.peerConnection.addIceCandidate(candidate);
+      console.log("✓ ICE candidate added");
+    }
   }
 
   private setupDataChannelHandlers(

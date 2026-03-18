@@ -6,8 +6,14 @@ type DeviceEventCallback = (event: {
   device: any;
 }) => void;
 
+// Transfer signal callback type
+type TransferSignalCallback = (signal: any) => void;
+
 // Store device event listeners
 const deviceEventListeners = new Set<DeviceEventCallback>();
+
+// Store transfer signal listeners
+const transferSignalListeners = new Set<TransferSignalCallback>();
 
 // Create the Electroview instance with message handlers
 export const electroview = new Electroview({
@@ -28,6 +34,19 @@ export const electroview = new Electroview({
             }
           }
         },
+        // Receive transfer signals from backend
+        onTransferSignal: (signal: any) => {
+          console.log("📡 Received transfer signal:", signal.type, "from", signal.from);
+          
+          // Notify all listeners
+          for (const listener of transferSignalListeners) {
+            try {
+              listener(signal);
+            } catch (error) {
+              console.error("Error in transfer signal listener:", error);
+            }
+          }
+        },
       },
     },
   }),
@@ -40,6 +59,16 @@ export function onDeviceEvent(callback: DeviceEventCallback): () => void {
   // Return unsubscribe function
   return () => {
     deviceEventListeners.delete(callback);
+  };
+}
+
+// Export function to subscribe to transfer signals
+export function onTransferSignal(callback: TransferSignalCallback): () => void {
+  transferSignalListeners.add(callback);
+  
+  // Return unsubscribe function
+  return () => {
+    transferSignalListeners.delete(callback);
   };
 }
 
