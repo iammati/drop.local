@@ -189,16 +189,37 @@ export class FileTransferService {
 
     return new Promise(async (resolve, reject) => {
       try {
-        // Create peer connection
+        // Create peer connection for LAN-only transfers (no STUN/TURN needed)
         this.peerConnection = new RTCPeerConnection({
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+          iceServers: [], // No external servers - LAN only
         });
 
-        // Handle ICE candidates
+        // Log connection state changes
+        this.peerConnection.onconnectionstatechange = () => {
+          console.log(`🔗 [Receiver] Connection state: ${this.peerConnection!.connectionState}`);
+        };
+
+        this.peerConnection.oniceconnectionstatechange = () => {
+          console.log(`🧊 [Receiver] ICE connection state: ${this.peerConnection!.iceConnectionState}`);
+        };
+
+        this.peerConnection.onicegatheringstatechange = () => {
+          console.log(`📡 [Receiver] ICE gathering state: ${this.peerConnection!.iceGatheringState}`);
+        };
+
+        // Handle ICE candidates - only send host (local) candidates for LAN
         this.peerConnection.onicecandidate = async (event) => {
           if (event.candidate) {
-            console.log("Sending ICE candidate to sender", senderId);
+            // Only use host candidates (local network) - skip STUN/TURN candidates
+            if (event.candidate.type !== "host") {
+              console.log("⏭️  [Receiver] Skipping non-host candidate:", event.candidate.type);
+              return;
+            }
+            
+            console.log("📤 [Receiver] Sending host ICE candidate to sender", senderId);
             await this.sendSignal(senderId, "ice-candidate", event.candidate);
+          } else {
+            console.log("✓ [Receiver] All ICE candidates sent");
           }
         };
 
@@ -228,15 +249,37 @@ export class FileTransferService {
   }
 
   private async createPeerConnection(recipientId: string): Promise<void> {
+    // Create peer connection for LAN-only transfers (no STUN/TURN needed)
     this.peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [], // No external servers - LAN only
     });
 
-    // Handle ICE candidates
+    // Log connection state changes
+    this.peerConnection.onconnectionstatechange = () => {
+      console.log(`🔗 Connection state: ${this.peerConnection!.connectionState}`);
+    };
+
+    this.peerConnection.oniceconnectionstatechange = () => {
+      console.log(`🧊 ICE connection state: ${this.peerConnection!.iceConnectionState}`);
+    };
+
+    this.peerConnection.onicegatheringstatechange = () => {
+      console.log(`📡 ICE gathering state: ${this.peerConnection!.iceGatheringState}`);
+    };
+
+    // Handle ICE candidates - only send host (local) candidates for LAN
     this.peerConnection.onicecandidate = async (event) => {
       if (event.candidate) {
-        console.log("Sending ICE candidate to", recipientId);
+        // Only use host candidates (local network) - skip STUN/TURN candidates
+        if (event.candidate.type !== "host") {
+          console.log("⏭️  Skipping non-host candidate:", event.candidate.type);
+          return;
+        }
+        
+        console.log("📤 Sending host ICE candidate to", recipientId, "- Address:", event.candidate.address);
         await this.sendSignal(recipientId, "ice-candidate", event.candidate);
+      } else {
+        console.log("✓ All ICE candidates sent");
       }
     };
 
@@ -246,6 +289,19 @@ export class FileTransferService {
     });
 
     this.dataChannel.binaryType = "arraybuffer";
+
+    // Log data channel state
+    this.dataChannel.onopen = () => {
+      console.log("✅ Data channel opened - ready to send!");
+    };
+
+    this.dataChannel.onclose = () => {
+      console.log("❌ Data channel closed");
+    };
+
+    this.dataChannel.onerror = (error) => {
+      console.error("❌ Data channel error:", error);
+    };
 
     // Create and send offer
     const offer = await this.peerConnection.createOffer();
@@ -395,24 +451,34 @@ export class FileTransferService {
 
   private async waitForConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
+      console.log(`⏳ Waiting for data channel to open (current state: ${this.dataChannel!.readyState})...`);
+      
       if (this.dataChannel!.readyState === "open") {
+        console.log("✓ Data channel already open!");
         resolve();
         return;
       }
 
-      this.dataChannel!.onopen = () => {
-        console.log("✓ Data channel opened");
+      const openHandler = () => {
+        console.log("✅ Data channel opened - connection established!");
         resolve();
       };
 
-      this.dataChannel!.onerror = () => {
+      const errorHandler = (error: Event) => {
+        console.error("❌ Data channel error:", error);
         reject(new Error("Failed to open data channel"));
       };
 
-      // Timeout after 30 seconds
+      this.dataChannel!.addEventListener("open", openHandler, { once: true });
+      this.dataChannel!.addEventListener("error", errorHandler, { once: true });
+
+      // Timeout after 45 seconds with detailed error
       setTimeout(() => {
-        reject(new Error("Connection timeout"));
-      }, 30000);
+        console.error("❌ Connection timeout - data channel state:", this.dataChannel!.readyState);
+        console.error("❌ Peer connection state:", this.peerConnection!.connectionState);
+        console.error("❌ ICE connection state:", this.peerConnection!.iceConnectionState);
+        reject(new Error(`Connection timeout - Data channel: ${this.dataChannel!.readyState}, ICE: ${this.peerConnection!.iceConnectionState}`));
+      }, 45000);
     });
   }
 
