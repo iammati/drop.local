@@ -10,14 +10,21 @@ export interface DiscoveredDevice {
   lastSeen: number;
 }
 
+type DeviceEventCallback = (event: {
+  type: "device-joined" | "device-left" | "device-updated";
+  device: DiscoveredDevice;
+}) => void;
+
 const SERVICE_TYPE = "_drop-local._tcp";
 const SERVICE_PORT = 50002;
+const STALE_THRESHOLD = 15000; // 15 seconds - remove devices not seen in this time
 
 class DeviceDiscoveryService {
   private devices: Map<string, DiscoveredDevice> = new Map();
   private server: any = null;
   private broadcastInterval: Timer | null = null;
   private cleanupInterval: Timer | null = null;
+  private eventListeners: Set<DeviceEventCallback> = new Set();
 
   async start(): Promise<void> {
     console.log("Starting device discovery service...");
@@ -153,8 +160,20 @@ class DeviceDiscoveryService {
             // Don't add ourselves
             const localId = this.generateDeviceId();
             if (device.id !== localId) {
+              const existingDevice = this.devices.get(device.id);
+              const isNew = !existingDevice;
+              
               this.devices.set(device.id, device);
-              console.log("Discovered device:", device);
+              
+              if (isNew) {
+                console.log("✓ Device joined:", device.name);
+                this.emitDeviceEvent("device-joined", device);
+              } else {
+                // Device updated (heartbeat)
+                this.emitDeviceEvent("device-updated", device);
+              }
+            } else {
+              console.log("Ignored own broadcast from:", device.name);
             }
           }
         } catch (err) {
@@ -244,6 +263,39 @@ class DeviceDiscoveryService {
 
   getLocalDeviceId(): string {
     return this.generateDeviceId();
+  }
+
+  /**
+   * Subscribe to real-time device events
+   */
+  onDeviceEvent(callback: DeviceEventCallback): () => void {
+    this.eventListeners.add(callback);
+    console.log("Device event listener added, total listeners:", this.eventListeners.size);
+    
+    // Return unsubscribe function
+    return () => {
+      this.eventListeners.delete(callback);
+      console.log("Device event listener removed, total listeners:", this.eventListeners.size);
+    };
+  }
+
+  /**
+   * Emit device event to all listeners
+   */
+  private emitDeviceEvent(
+    type: "device-joined" | "device-left" | "device-updated",
+    device: DiscoveredDevice
+  ): void {
+    const event = { type, device };
+    console.log(`📡 Emitting event: ${type} for device ${device.name}`);
+    
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("Error in device event listener:", error);
+      }
+    }
   }
 
   stop(): void {

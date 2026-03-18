@@ -29,6 +29,9 @@ function getLocalDeviceId(): string {
 	return deviceDiscovery.getLocalDeviceId();
 }
 
+// Store reference to main window for sending events
+let mainWindowRef: BrowserWindow | null = null;
+
 // Set up RPC for device discovery and file transfer
 const deviceDiscoveryRPC = BrowserView.defineRPC({
 	handlers: {
@@ -40,6 +43,30 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 			},
 			getLocalDeviceId: () => {
 				return getLocalDeviceId();
+			},
+			// Subscribe to device events
+			subscribeToDeviceEvents: () => {
+				console.log("Frontend subscribed to device events");
+				
+				// Immediately push current device list
+				if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
+					const currentDevices = deviceDiscovery.getDevices();
+					console.log("Pushing initial device list:", currentDevices.length, "devices");
+					
+					// Send each device as a "device-joined" event
+					for (const device of currentDevices) {
+						try {
+							mainWindowRef.webview.rpc.send.onDeviceEvent({
+								type: "device-joined",
+								device,
+							});
+						} catch (error) {
+							console.error("Failed to send initial device:", error);
+						}
+					}
+				}
+				
+				return { success: true };
 			},
 			// Send signaling message to another device
 			sendSignal: async ({ to, signal }: { to: string; signal: any }) => {
@@ -73,8 +100,23 @@ const mainWindow = new BrowserWindow({
 	rpc: deviceDiscoveryRPC,
 });
 
+// Store window reference
+mainWindowRef = mainWindow;
+
 // Start device discovery service
 console.log("Starting device discovery...");
 await deviceDiscovery.start();
+
+// Forward device events to frontend in real-time
+deviceDiscovery.onDeviceEvent((event) => {
+	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
+		try {
+			// Send event to frontend via RPC message
+			mainWindowRef.webview.rpc.send.onDeviceEvent(event);
+		} catch (error) {
+			console.error("Failed to send device event to frontend:", error);
+		}
+	}
+});
 
 console.log("React Tailwind Vite app started!");

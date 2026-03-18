@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Device } from "../pages/Index";
-import { electroview } from "../electroview";
+import { electroview, onDeviceEvent } from "../electroview";
 
 interface DiscoveredDevice {
   id: string;
@@ -11,8 +11,6 @@ interface DiscoveredDevice {
   lastSeen: number;
 }
 
-const ACTIVE_THRESHOLD = 10000; // 10 seconds - device is active if seen within this time
-
 export function useDeviceDiscovery() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,49 +18,65 @@ export function useDeviceDiscovery() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let pollInterval: Timer | null = null;
-    let retryTimeout: Timer | null = null;
-
     const initDiscovery = async () => {
       try {
-        console.log("✓ Initializing device discovery with Electroview...");
+        console.log("✓ Initializing fully event-driven device discovery...");
         
         // Check if we're in Electrobun environment
         if (electroview && electroview.rpc && electroview.rpc.request) {
-          console.log("✓ Electrobun RPC found! Starting device polling...");
+          console.log("✓ Electrobun RPC found!");
           
-          // Start polling for devices
-          const pollDevices = async () => {
-            try {
-              const discoveredDevices: DiscoveredDevice[] = await electroview.rpc.request.getDevices();
-              const now = Date.now();
-              
-              console.log("✓ Polled devices:", discoveredDevices.length, "found");
-              
-              // Convert to Device format with isActive status
-              const formattedDevices: Device[] = discoveredDevices.map((d: DiscoveredDevice) => ({
-                id: d.id,
-                name: d.name,
-                type: d.type,
-                ip: d.ip,
-                isActive: (now - d.lastSeen) < ACTIVE_THRESHOLD,
-                lastSeen: d.lastSeen,
-              }));
+          // Listen for device events FIRST
+          const unsubscribe = onDeviceEvent((event) => {
+            console.log("📡 Device event:", event.type, event.device.name);
+            
+            setDevices((prevDevices) => {
+              switch (event.type) {
+                case "device-joined":
+                  // Check if device already exists (avoid duplicates)
+                  if (prevDevices.some((d) => d.id === event.device.id)) {
+                    return prevDevices;
+                  }
+                  
+                  // Add new device
+                  return [
+                    ...prevDevices,
+                    {
+                      id: event.device.id,
+                      name: event.device.name,
+                      type: event.device.type,
+                      ip: event.device.ip,
+                      isActive: true,
+                      lastSeen: event.device.lastSeen,
+                    },
+                  ];
+                
+                case "device-left":
+                  // Remove device
+                  return prevDevices.filter((d) => d.id !== event.device.id);
+                
+                case "device-updated":
+                  // Update device lastSeen
+                  return prevDevices.map((d) =>
+                    d.id === event.device.id
+                      ? { ...d, lastSeen: event.device.lastSeen, isActive: true }
+                      : d
+                  );
+                
+                default:
+                  return prevDevices;
+              }
+            });
+          });
 
-              setDevices(formattedDevices);
-              setIsLoading(false);
-            } catch (err) {
-              console.error("✗ Error fetching devices:", err);
-              setError("Failed to fetch devices");
-              setIsLoading(false);
-            }
-          };
+          // Subscribe to device events - backend will push initial devices
+          await electroview.rpc.request.subscribeToDeviceEvents();
+          console.log("✓ Subscribed - waiting for device events...");
+          
+          setIsLoading(false);
 
-          // Poll immediately
-          await pollDevices();
-
-          // Then poll every 2 seconds
-          pollInterval = setInterval(pollDevices, 2000);
+          // Return cleanup function
+          return unsubscribe;
         } else {
           // Not in Electrobun - no devices available
           console.log("⟳ Not in Electrobun environment, no devices available");
@@ -76,14 +90,14 @@ export function useDeviceDiscovery() {
       }
     };
 
-    initDiscovery();
+    const cleanup = initDiscovery();
 
     return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
-      }
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
+      // Cleanup event listener
+      if (cleanup instanceof Promise) {
+        cleanup.then((unsubscribe) => {
+          if (unsubscribe) unsubscribe();
+        });
       }
     };
   }, []);
