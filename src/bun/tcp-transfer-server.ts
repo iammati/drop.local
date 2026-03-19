@@ -306,7 +306,7 @@ export class TcpTransferServer {
   }
 
   /**
-   * Finish a streaming transfer - closes TCP connection and cleans up
+   * Finish a streaming transfer - waits for receiver confirmation before closing
    */
   async finishStreamingTransfer(transferId: string): Promise<void> {
     const stream = this.activeStreams.get(transferId);
@@ -315,15 +315,23 @@ export class TcpTransferServer {
     }
 
     return new Promise((resolve) => {
-      console.log(`✓ Streaming transfer complete: ${stream.fileName} (${stream.sentBytes} bytes)`);
+      console.log(`✓ All chunks sent: ${stream.fileName} (${stream.sentBytes} bytes)`);
+      console.log(`⏳ Waiting for receiver to confirm 100%...`);
       
-      // Wait a bit for receiver to send final progress update
-      setTimeout(() => {
+      // Wait for receiver to confirm 100% via progress update
+      // The socket.on("data") handler will close the socket when progress >= 100
+      // If no confirmation after 5 seconds, close anyway
+      const timeout = setTimeout(() => {
+        console.warn(`⚠️ No 100% confirmation received, closing socket anyway`);
         stream.socket.end(() => {
           this.activeStreams.delete(transferId);
           resolve();
         });
-      }, 100);
+      }, 5000);
+      
+      // Store timeout so we can clear it if we get 100% confirmation
+      (stream as any).closeTimeout = timeout;
+      (stream as any).closeResolve = resolve;
     });
   }
 
@@ -414,8 +422,22 @@ export class TcpTransferServer {
               // If transfer is complete, close socket
               if (update.progress >= 100) {
                 console.log(`✓ Transfer confirmed complete by receiver: ${fileName}`);
-                socket.end();
-                resolve();
+                
+                // Clear timeout and resolve from finishStreamingTransfer
+                const stream = this.activeStreams.get(transferId);
+                if (stream && (stream as any).closeTimeout) {
+                  clearTimeout((stream as any).closeTimeout);
+                  socket.end(() => {
+                    this.activeStreams.delete(transferId);
+                    if ((stream as any).closeResolve) {
+                      (stream as any).closeResolve();
+                    }
+                  });
+                } else {
+                  // Old sendFile method (non-streaming)
+                  socket.end();
+                  resolve();
+                }
               }
             }
           } catch (err) {

@@ -147,7 +147,7 @@ class DeviceDiscoveryService {
       this.server.on("message", (msg: Buffer, rinfo: any) => {
         try {
           const data = JSON.parse(msg.toString());
-          console.log(`Received message from ${rinfo.address}:${rinfo.port}:`, data);
+          // console.log(`Received message from ${rinfo.address}:${rinfo.port}:`, data);
         
           if (data.type === "drop-local-goodbye") {
             // Device is gracefully disconnecting
@@ -186,7 +186,7 @@ class DeviceDiscoveryService {
                 this.emitDeviceEvent("device-updated", device);
               }
             } else {
-              console.log("Ignored own broadcast from:", device.name);
+              // console.log("Ignored own broadcast from:", device.name);
             }
           }
         } catch (err) {
@@ -235,7 +235,7 @@ class DeviceDiscoveryService {
           const buffer = Buffer.from(message);
           const broadcastAddr = this.getBroadcastAddress();
           
-          console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
+          // console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
           
           client.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err) => {
             if (err) {
