@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import { onFileReceived, onTransferProgress } from "../electroview";
+import { electroview, onFileReceived, onTransferProgress } from "../electroview";
 import type { SharedContent } from "../pages/Index";
 import type { TransferProgress as UiTransferProgress } from "../lib/file-transfer";
 
@@ -115,8 +115,7 @@ export function useFileTransfer() {
               
               console.log(`📤 Sending file ${file.name} to ${device.name}`);
               
-              const electroview = (window as any).electroview;
-              await electroview.rpc.request.sendFile({
+              await (electroview.rpc as any).request.sendFile({
                 recipientId: device.id,
                 fileName: file.name,
                 fileData: Array.from(new Uint8Array(fileData)),
@@ -131,8 +130,7 @@ export function useFileTransfer() {
               
               const textData = new TextEncoder().encode(textContent);
               
-              const electroview = (window as any).electroview;
-              await electroview.rpc.request.sendFile({
+              await (electroview.rpc as any).request.sendFile({
                 recipientId: device.id,
                 fileName: content.name || "text.txt",
                 fileData: Array.from(textData),
