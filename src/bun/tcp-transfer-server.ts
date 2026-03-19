@@ -14,6 +14,7 @@ interface TransferMetadata {
   fileSize: number;
   mimeType: string;
   from: string;
+  isTextMessage?: boolean; // Flag to indicate this is a text message, not a file
 }
 
 interface TransferProgress {
@@ -152,6 +153,7 @@ export class TcpTransferServer {
     fileData: Buffer,
     mimeType: string,
     fromDeviceId: string,
+    isTextMessage?: boolean,
     onProgress?: (progress: TransferProgress) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -169,13 +171,14 @@ export class TcpTransferServer {
           fileSize: fileData.length,
           mimeType,
           from: fromDeviceId,
+          isTextMessage,
         };
 
         const metadataStr = JSON.stringify(metadata) + "\n";
         socket.write(metadataStr);
 
         // Send file data in chunks
-        const chunkSize = 64 * 1024; // 64KB chunks
+        const chunkSize = 256 * 1024; // 256KB chunks for faster transfers
         let sentBytes = 0;
 
         const sendNextChunk = () => {

@@ -14,6 +14,7 @@ interface ReceivedFile {
   mimeType: string;
   from: string;
   fromName: string;
+  isTextMessage?: boolean;
   data: number[]; // Array of bytes
 }
 

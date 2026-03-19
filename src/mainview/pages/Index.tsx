@@ -77,9 +77,9 @@ const Index = () => {
   }, [selectedDevices, contents, sendFiles]);
 
   const handleReset = useCallback(() => {
-    setStep(1);
     setContents([]);
     setSelectedDevices([]);
+    setStep(1);
   }, []);
 
   const handleBackToContent = useCallback(() => {

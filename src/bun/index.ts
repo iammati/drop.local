@@ -68,8 +68,9 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 				
 				return { success: true };
 			},
-			sendFile: async ({ recipientId, fileName, fileData, mimeType }) => {
-				console.log(`📤 Sending file ${fileName} to ${recipientId}`);
+			sendFile: async ({ recipientId, fileName, fileData, mimeType, isTextMessage }) => {
+				const logType = isTextMessage ? "text message" : "file";
+				console.log(`📤 Sending ${logType} ${fileName} to ${recipientId}`);
 				
 				const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
 				if (!recipient) {
@@ -83,7 +84,8 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 					fileName,
 					fileBuffer,
 					mimeType,
-					getLocalDeviceId()
+					getLocalDeviceId(),
+					isTextMessage
 				);
 
 				return { success: true };
@@ -135,9 +137,11 @@ tcpTransferServer.onTransfer((metadata, data) => {
 			mimeType: metadata.mimeType,
 			from: metadata.from,
 			fromName: fromName,
+			isTextMessage: metadata.isTextMessage,
 			data: Array.from(data),
 		});
-		console.log(`✓ File forwarded to frontend from ${fromName}`);
+		const msgType = metadata.isTextMessage ? "text message" : "file";
+		console.log(`✓ ${msgType} forwarded to frontend from ${fromName}`);
 	}
 });
 

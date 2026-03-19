@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MessageSquare, FileText, Download, ExternalLink } from "lucide-react";
 import type { ReceivedMessage } from "../../hooks/useFileTransfer-tcp";
@@ -8,6 +9,21 @@ interface MessageToastProps {
 }
 
 export function MessageToast({ messages, onDismiss }: MessageToastProps) {
+  // Auto-dismiss toasts after 10 seconds
+  useEffect(() => {
+    if (messages.length === 0) return;
+    
+    const timers = messages.map((message) => {
+      return setTimeout(() => {
+        onDismiss(message.id);
+      }, 10000);
+    });
+    
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer));
+    };
+  }, [messages, onDismiss]);
+
   return (
     <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md">
       <AnimatePresence>

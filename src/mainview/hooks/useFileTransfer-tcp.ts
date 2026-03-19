@@ -51,10 +51,8 @@ export function useFileTransfer() {
       // Convert array back to Uint8Array
       const fileData = new Uint8Array(file.data);
       
-      // Check if it's a text message
-      const isTextMessage = file.mimeType === "text/plain" || file.fileName.endsWith(".txt");
-      
-      if (isTextMessage) {
+      // Check if it's a text message (use flag from backend)
+      if (file.isTextMessage) {
         // Display as text message
         const textContent = new TextDecoder().decode(fileData);
         
@@ -68,7 +66,8 @@ export function useFileTransfer() {
           type: "text",
         };
         
-        setReceivedMessages((prev) => [...prev, message]);
+        // Keep only last 20 messages to prevent memory buildup
+        setReceivedMessages((prev) => [...prev, message].slice(-20));
         console.log("✓ Text message received:", textContent);
       } else {
         // Create blob URL for file (don't auto-download)
@@ -110,7 +109,9 @@ export function useFileTransfer() {
               downloadProgress: 100,
               isDownloading: false,
             };
-            return [...prev, message];
+            // Keep only last 20 messages to prevent memory buildup
+            const newMessages = [...prev, message];
+            return newMessages.slice(-20);
           }
         });
       }
@@ -128,7 +129,8 @@ export function useFileTransfer() {
         return next;
       });
       
-      // Update or create message for incoming files
+      // Update or create message for incoming files (but not text messages)
+      // Text messages don't need progress tracking
       setReceivedMessages((prev) => {
         const existingMsg = prev.find((msg) => msg.id === progress.transferId);
         
@@ -144,7 +146,8 @@ export function useFileTransfer() {
               : msg
           );
         } else {
-          // Create placeholder message for new transfer
+          // Create placeholder message for new file transfer
+          // Skip for text messages (they're handled directly in onFileReceived)
           const placeholderMsg: ReceivedMessage = {
             id: progress.transferId,
             from: "",
@@ -205,6 +208,7 @@ export function useFileTransfer() {
                 fileName: content.name || "text.txt",
                 fileData: Array.from(textData),
                 mimeType: "text/plain",
+                isTextMessage: true,
               });
 
               console.log(`✓ Successfully sent text to ${device.name}`);
@@ -222,7 +226,15 @@ export function useFileTransfer() {
   );
 
   const clearMessage = useCallback((id: string) => {
-    setReceivedMessages((prev) => prev.filter((m) => m.id !== id));
+    setReceivedMessages((prev) => {
+      // Find the message to clean up blob URL
+      const message = prev.find((m) => m.id === id);
+      if (message?.fileUrl) {
+        URL.revokeObjectURL(message.fileUrl);
+        console.log("🧹 Cleaned up blob URL for:", message.fileName);
+      }
+      return prev.filter((m) => m.id !== id);
+    });
   }, []);
 
   const uiTransfers: UiTransferProgress[] = Array.from(transfers.values()).map((t) => ({
