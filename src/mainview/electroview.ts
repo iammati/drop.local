@@ -6,8 +6,27 @@ type DeviceEventCallback = (event: {
   device: any;
 }) => void;
 
+// Received file interface
+interface ReceivedFile {
+  transferId: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  from: string;
+  data: number[]; // Array of bytes
+}
+
+// Transfer progress interface
+interface TransferProgress {
+  transferId: string;
+  fileName: string;
+  totalBytes: number;
+  receivedBytes: number;
+  progress: number;
+}
+
 // Transfer signal callback type
-type TransferSignalCallback = (signal: any) => void;
+type TransferSignalCallback = (signal: ReceivedFile | TransferProgress) => void;
 
 // Store device event listeners
 const deviceEventListeners = new Set<DeviceEventCallback>();
@@ -70,6 +89,24 @@ export function onTransferSignal(callback: TransferSignalCallback): () => void {
   return () => {
     transferSignalListeners.delete(callback);
   };
+}
+
+// Export function to subscribe to file received events
+export function onFileReceived(callback: (file: ReceivedFile) => void): () => void {
+  const electroview = (window as any).electroview;
+  if (electroview?.rpc?.onMessage?.onFileReceived) {
+    return electroview.rpc.onMessage.onFileReceived(callback);
+  }
+  return () => {};
+}
+
+// Export function to subscribe to transfer progress events
+export function onTransferProgress(callback: (progress: TransferProgress) => void): () => void {
+  const electroview = (window as any).electroview;
+  if (electroview?.rpc?.onMessage?.onTransferProgress) {
+    return electroview.rpc.onMessage.onTransferProgress(callback);
+  }
+  return () => {};
 }
 
 // Make it globally available for debugging

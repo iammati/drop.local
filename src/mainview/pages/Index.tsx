@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/share/ThemeToggle";
 import { ConnectedDevices } from "@/components/share/ConnectedDevices";
 import { MessageToast } from "../components/share/MessageToast";
 import { useDeviceDiscovery } from "../hooks/useDeviceDiscovery";
-import { useFileTransfer } from "../hooks/useFileTransfer";
+import { useFileTransfer } from "../hooks/useFileTransfer-tcp";
 
 export type SharedContent = {
   type: "file" | "text" | "image";

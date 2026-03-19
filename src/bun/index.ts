@@ -1,6 +1,6 @@
 import { BrowserWindow, BrowserView, Updater } from "electrobun/bun";
 import { deviceDiscovery } from "./device-discovery";
-import { signalingServer } from "./transfer-server";
+import { tcpTransferServer } from "./tcp-transfer-server";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -68,33 +68,28 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 				
 				return { success: true };
 			},
-			// Send signaling message to another device
-			sendSignal: async ({ to, signal }: { to: string; signal: any }) => {
-				const localId = getLocalDeviceId();
-				console.log(`📤 Backend received sendSignal request:`);
-				console.log(`   From: ${localId}`);
-				console.log(`   To: ${to}`);
-				console.log(`   Type: ${signal.type}`);
-				console.log(`   TransferId: ${signal.transferId}`);
+			sendFile: async ({ recipientId, fileName, fileData, mimeType }) => {
+				console.log(`📤 Sending file ${fileName} to ${recipientId}`);
 				
-				signalingServer.handleSignal({
-					type: signal.type,
-					transferId: signal.transferId,
-					from: localId,
-					to,
-					data: signal.data,
-				});
+				const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
+				if (!recipient) {
+					throw new Error(`Device ${recipientId} not found`);
+				}
+
+				const fileBuffer = Buffer.from(fileData);
 				
-				console.log(`✓ Signal forwarded to signaling server`);
+				await tcpTransferServer.sendFile(
+					recipient.ip,
+					fileName,
+					fileBuffer,
+					mimeType,
+					getLocalDeviceId()
+				);
+
 				return { success: true };
 			},
 		},
-		messages: {
-			// Receive signaling messages from frontend
-			onSignalReceived: (signal: any) => {
-				console.log("Frontend received signal:", signal);
-			},
-		},
+		messages: {},
 	},
 });
 
@@ -119,40 +114,43 @@ mainWindowRef = mainWindow;
 // Show the window
 mainWindow.show();
 
-// Start signaling server
-console.log("Starting signaling server...");
-await signalingServer.start();
+// Start TCP transfer server
+console.log("Starting TCP transfer server...");
+await tcpTransferServer.start();
+
+// Handle incoming file transfers
+tcpTransferServer.onTransfer((metadata, data) => {
+	console.log(`📥 Received file: ${metadata.fileName} from ${metadata.from}`);
+	
+	// Forward to frontend via RPC
+	if (mainWindowRef?.webview?.rpc) {
+		(mainWindowRef.webview.rpc as any).send.onFileReceived({
+			transferId: metadata.transferId,
+			fileName: metadata.fileName,
+			fileSize: metadata.fileSize,
+			mimeType: metadata.mimeType,
+			from: metadata.from,
+			data: Array.from(data),
+		});
+		console.log("✓ File forwarded to frontend");
+	}
+});
+
+// Handle transfer progress
+tcpTransferServer.onProgress((progress) => {
+	if (mainWindowRef?.webview?.rpc) {
+		(mainWindowRef.webview.rpc as any).send.onTransferProgress(progress);
+	}
+});
 
 // Start device discovery service
 console.log("Starting device discovery...");
 await deviceDiscovery.start();
 
-// Register this device with signaling server to receive transfer signals
-const localDeviceId = getLocalDeviceId();
-signalingServer.registerDevice(localDeviceId, (signal) => {
-	console.log("📥 Received signal for local device:", signal.type, "from", signal.from);
-	
-	// Forward signal to frontend
-	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
-		try {
-			mainWindowRef.webview.rpc.send.onTransferSignal(signal);
-			console.log("✓ Signal forwarded to frontend");
-		} catch (error) {
-			console.error("Failed to forward signal to frontend:", error);
-		}
-	}
-});
-
 // Forward device events to frontend in real-time
 deviceDiscovery.onDeviceEvent((event) => {
-	// Update signaling server with device IP
-	if (event.type === "device-joined" || event.type === "device-updated") {
-		signalingServer.updateDeviceIp(event.device.id, event.device.ip);
-	}
-	
 	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
 		try {
-			// Send event to frontend via RPC message
 			mainWindowRef.webview.rpc.send.onDeviceEvent(event);
 		} catch (error) {
 			console.error("Failed to send device event to frontend:", error);
@@ -160,26 +158,22 @@ deviceDiscovery.onDeviceEvent((event) => {
 	}
 });
 
-// Graceful shutdown on app close
-process.on("SIGINT", async () => {
-	console.log("\n🛑 Shutting down gracefully...");
+// Graceful shutdown
+const shutdown = async () => {
+	console.log("\nShutting down gracefully...");
 	await deviceDiscovery.stop();
-	await signalingServer.stop();
+	await tcpTransferServer.stop();
 	process.exit(0);
-});
+};
 
-process.on("SIGTERM", async () => {
-	console.log("\n🛑 Shutting down gracefully...");
-	await deviceDiscovery.stop();
-	await signalingServer.stop();
-	process.exit(0);
-});
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 // Handle window close
 mainWindow.on("close", async () => {
 	console.log("Window closing, stopping services...");
 	await deviceDiscovery.stop();
-	await signalingServer.stop();
+	await tcpTransferServer.stop();
 });
 
 console.log("React Tailwind Vite app started!");

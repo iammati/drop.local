@@ -95,15 +95,22 @@ export function useFileTransfer() {
         }
       } else if (signal.type === "answer") {
         // Handle answer from receiver (for sender)
+        console.log("📥 Received answer signal for transferId:", signal.transferId);
+        console.log("Active senders:", Array.from(activeSenders.keys()));
         const sender = activeSenders.get(signal.transferId);
         if (sender) {
+          console.log("✓ Found sender service, handling answer");
           await sender.handleAnswer(signal.data);
+        } else {
+          console.error("❌ No sender service found for transferId:", signal.transferId);
         }
       } else if (signal.type === "ice-candidate") {
         // Handle ICE candidate
         const service = activeSenders.get(signal.transferId) || activeReceivers.get(signal.transferId);
         if (service) {
           await service.handleIceCandidate(signal.data);
+        } else {
+          console.warn("⚠️  No service found for ICE candidate, transferId:", signal.transferId);
         }
       }
     });
