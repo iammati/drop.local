@@ -34,6 +34,8 @@ export interface ReceivedMessage {
   fileSize?: number;
   fileUrl?: string;
   mimeType?: string;
+  downloadProgress?: number;
+  isDownloading?: boolean;
 }
 
 export function useFileTransfer() {
@@ -75,21 +77,42 @@ export function useFileTransfer() {
         
         console.log("✓ File received:", file.fileName);
         
-        // Show notification as a file message
-        const message: ReceivedMessage = {
-          id: file.transferId,
-          from: file.from,
-          fromName: file.fromName,
-          content: file.fileName,
-          fileName: file.fileName,
-          timestamp: Date.now(),
-          type: "file",
-          fileSize: file.fileSize,
-          fileUrl: url,
-          mimeType: file.mimeType,
-        };
-        
-        setReceivedMessages((prev) => [...prev, message]);
+        // Update existing message or create new one
+        setReceivedMessages((prev) => {
+          const existingIndex = prev.findIndex((msg) => msg.id === file.transferId);
+          
+          if (existingIndex !== -1) {
+            // Update existing placeholder message
+            const updated = [...prev];
+            updated[existingIndex] = {
+              ...updated[existingIndex],
+              from: file.from,
+              fromName: file.fromName,
+              fileUrl: url,
+              mimeType: file.mimeType,
+              downloadProgress: 100,
+              isDownloading: false,
+            };
+            return updated;
+          } else {
+            // Create new message if no placeholder exists
+            const message: ReceivedMessage = {
+              id: file.transferId,
+              from: file.from,
+              fromName: file.fromName,
+              content: file.fileName,
+              fileName: file.fileName,
+              timestamp: Date.now(),
+              type: "file",
+              fileSize: file.fileSize,
+              fileUrl: url,
+              mimeType: file.mimeType,
+              downloadProgress: 100,
+              isDownloading: false,
+            };
+            return [...prev, message];
+          }
+        });
       }
     });
 
@@ -103,6 +126,39 @@ export function useFileTransfer() {
         const next = new Map(prev);
         next.set(progress.transferId, progress);
         return next;
+      });
+      
+      // Update or create message for incoming files
+      setReceivedMessages((prev) => {
+        const existingMsg = prev.find((msg) => msg.id === progress.transferId);
+        
+        if (existingMsg) {
+          // Update existing message
+          return prev.map((msg) => 
+            msg.id === progress.transferId
+              ? { 
+                  ...msg, 
+                  downloadProgress: progress.progress,
+                  isDownloading: progress.progress < 100 
+                }
+              : msg
+          );
+        } else {
+          // Create placeholder message for new transfer
+          const placeholderMsg: ReceivedMessage = {
+            id: progress.transferId,
+            from: "",
+            fromName: "Unknown",
+            content: progress.fileName,
+            fileName: progress.fileName,
+            timestamp: Date.now(),
+            type: "file",
+            fileSize: progress.totalBytes,
+            downloadProgress: progress.progress,
+            isDownloading: true,
+          };
+          return [...prev, placeholderMsg];
+        }
       });
     });
 

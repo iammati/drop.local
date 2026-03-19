@@ -57,29 +57,53 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
                       </div>
                     </div>
                     
-                    <div className="flex gap-2">
-                      {message.fileUrl && (
-                        <>
-                          <a
-                            href={message.fileUrl}
-                            download={message.fileName}
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
-                          >
-                            <Download className="w-3 h-3" />
-                            Download
-                          </a>
-                          <a
-                            href={message.fileUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition-colors"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Open
-                          </a>
-                        </>
-                      )}
-                    </div>
+                    {/* Progress bar */}
+                    {message.isDownloading && message.downloadProgress !== undefined && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Downloading...</span>
+                          <span className="text-primary font-medium">{message.downloadProgress}%</span>
+                        </div>
+                        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary transition-all duration-300 ease-out"
+                            style={{ width: `${message.downloadProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!message.isDownloading && (
+                      <div className="flex gap-2">
+                        {message.fileUrl && (
+                          <>
+                            <button
+                              onClick={() => {
+                                const a = document.createElement('a');
+                                a.href = message.fileUrl!;
+                                a.download = message.fileName;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
+                              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                            >
+                              <Download className="w-3 h-3" />
+                              Download
+                            </button>
+                            <a
+                              href={message.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Open
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap">
