@@ -22,26 +22,14 @@ export const TransferStatus = ({
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
 
-  // Calculate overall progress from all transfers
+  // Calculate overall progress from all transfers (real-time, no fake animations)
   useEffect(() => {
     if (transfers.length === 0) {
-      // Fallback to simulated progress if no real transfers
-      const duration = 2000;
-      const interval = 30;
-      const step = 100 / (duration / interval);
-      const timer = setInterval(() => {
-        setProgress((p) => {
-          if (p >= 100) {
-            clearInterval(timer);
-            setDone(true);
-            return 100;
-          }
-          return Math.min(p + step + Math.random() * step * 0.5, 100);
-        });
-      }, interval);
-      return () => clearInterval(timer);
+      // No transfers yet - stay at 0%
+      setProgress(0);
+      setDone(false);
     } else {
-      // Calculate real progress
+      // Calculate real progress from actual transfer data
       const totalProgress = transfers.reduce((sum, t) => sum + t.progress, 0);
       const avgProgress = transfers.length > 0 ? totalProgress / transfers.length : 0;
       setProgress(avgProgress);
@@ -62,7 +50,7 @@ export const TransferStatus = ({
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className={`flex h-16 w-16 items-center justify-center rounded-2xl transition-colors duration-500 ${
+        className={`flex h-16 w-16 items-center justify-center rounded-full transition-colors duration-500 ${
           done ? "bg-green-500" : "bg-accent"
         }`}
       >

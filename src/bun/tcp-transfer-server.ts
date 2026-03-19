@@ -109,7 +109,7 @@ export class TcpTransferServer {
         receivedData.push(buf);
         receivedBytes += buf.length;
 
-        // Report progress
+        // Report progress locally
         if (this.onProgressCallback && metadata) {
           this.onProgressCallback({
             transferId: metadata.transferId,
@@ -119,6 +119,16 @@ export class TcpTransferServer {
             progress: Math.floor((receivedBytes / expectedBytes) * 100),
           });
         }
+
+        // Send progress update back to sender
+        const progressUpdate = {
+          type: "progress",
+          transferId: metadata!.transferId,
+          receivedBytes,
+          totalBytes: expectedBytes,
+          progress: Math.floor((receivedBytes / expectedBytes) * 100),
+        };
+        socket.write(JSON.stringify(progressUpdate) + "\n");
       }
 
       // Check if transfer is complete
@@ -184,25 +194,13 @@ export class TcpTransferServer {
         const sendNextChunk = () => {
           if (sentBytes >= fileData.length) {
             console.log(`✓ File sent: ${fileName}`);
-            socket.end();
-            resolve();
+            // Don't close socket yet - wait for final progress confirmation
             return;
           }
 
           const chunk = fileData.slice(sentBytes, sentBytes + chunkSize);
           const canContinue = socket.write(chunk);
           sentBytes += chunk.length;
-
-          // Report progress
-          if (onProgress) {
-            onProgress({
-              transferId,
-              fileName,
-              totalBytes: fileData.length,
-              receivedBytes: sentBytes,
-              progress: Math.floor((sentBytes / fileData.length) * 100),
-            });
-          }
 
           if (canContinue) {
             // Continue sending immediately
@@ -214,6 +212,43 @@ export class TcpTransferServer {
         };
 
         sendNextChunk();
+      });
+
+      // Listen for progress updates from receiver
+      let progressBuffer = "";
+      socket.on("data", (chunk) => {
+        progressBuffer += chunk.toString();
+        const lines = progressBuffer.split("\n");
+        progressBuffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const update = JSON.parse(line);
+            if (update.type === "progress" && update.transferId === transferId) {
+              // Report real progress from receiver
+              if (onProgress) {
+                onProgress({
+                  transferId,
+                  fileName,
+                  totalBytes: fileData.length,
+                  receivedBytes: update.receivedBytes,
+                  progress: update.progress,
+                });
+              }
+
+              // If transfer is complete, close socket
+              if (update.progress >= 100) {
+                console.log(`✓ Transfer confirmed complete by receiver: ${fileName}`);
+                socket.end();
+                resolve();
+              }
+            }
+          } catch (err) {
+            console.error("Failed to parse progress update:", err);
+          }
+        }
       });
 
       socket.on("error", (err) => {
