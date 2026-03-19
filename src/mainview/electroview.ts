@@ -34,6 +34,12 @@ const deviceEventListeners = new Set<DeviceEventCallback>();
 // Store transfer signal listeners
 const transferSignalListeners = new Set<TransferSignalCallback>();
 
+// Store file received listeners
+const fileReceivedListeners = new Set<(file: ReceivedFile) => void>();
+
+// Store transfer progress listeners
+const transferProgressListeners = new Set<(progress: TransferProgress) => void>();
+
 // Create the Electroview instance with message handlers
 export const electroview = new Electroview({
   rpc: Electroview.defineRPC({
@@ -66,6 +72,30 @@ export const electroview = new Electroview({
             }
           }
         },
+        // Receive files from backend
+        onFileReceived: (file: ReceivedFile) => {
+          console.log("📥 Frontend received file:", file.fileName, "from", file.from);
+          
+          // Notify all listeners
+          for (const listener of fileReceivedListeners) {
+            try {
+              listener(file);
+            } catch (error) {
+              console.error("Error in file received listener:", error);
+            }
+          }
+        },
+        // Receive transfer progress from backend
+        onTransferProgress: (progress: TransferProgress) => {
+          // Notify all listeners
+          for (const listener of transferProgressListeners) {
+            try {
+              listener(progress);
+            } catch (error) {
+              console.error("Error in transfer progress listener:", error);
+            }
+          }
+        },
       },
     },
   }),
@@ -93,20 +123,22 @@ export function onTransferSignal(callback: TransferSignalCallback): () => void {
 
 // Export function to subscribe to file received events
 export function onFileReceived(callback: (file: ReceivedFile) => void): () => void {
-  const electroview = (window as any).electroview;
-  if (electroview?.rpc?.onMessage?.onFileReceived) {
-    return electroview.rpc.onMessage.onFileReceived(callback);
-  }
-  return () => {};
+  fileReceivedListeners.add(callback);
+  
+  // Return unsubscribe function
+  return () => {
+    fileReceivedListeners.delete(callback);
+  };
 }
 
 // Export function to subscribe to transfer progress events
 export function onTransferProgress(callback: (progress: TransferProgress) => void): () => void {
-  const electroview = (window as any).electroview;
-  if (electroview?.rpc?.onMessage?.onTransferProgress) {
-    return electroview.rpc.onMessage.onTransferProgress(callback);
-  }
-  return () => {};
+  transferProgressListeners.add(callback);
+  
+  // Return unsubscribe function
+  return () => {
+    transferProgressListeners.delete(callback);
+  };
 }
 
 // Make it globally available for debugging
