@@ -26,6 +26,7 @@ class DeviceDiscoveryService {
   private broadcastInterval: Timer | null = null;
   private cleanupInterval: Timer | null = null;
   private eventListeners: Set<DeviceEventCallback> = new Set();
+  private cachedDeviceId: string | null = null; // Cache device ID for consistency
 
   async start(): Promise<void> {
     console.log("Starting device discovery service...");
@@ -120,6 +121,11 @@ class DeviceDiscoveryService {
   }
 
   private generateDeviceId(): string {
+    // Return cached ID if available for consistency
+    if (this.cachedDeviceId) {
+      return this.cachedDeviceId;
+    }
+    
     const interfaces = os.networkInterfaces();
     let macAddress = "";
     
@@ -136,7 +142,9 @@ class DeviceDiscoveryService {
       if (macAddress) break;
     }
     
-    return macAddress || `device-${Date.now()}`;
+    // Cache the generated ID
+    this.cachedDeviceId = macAddress || `device-${Date.now()}`;
+    return this.cachedDeviceId;
   }
 
   private async startBroadcastServer(): Promise<void> {
