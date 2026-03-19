@@ -78,6 +78,19 @@ export function useFileTransfer() {
         URL.revokeObjectURL(url);
         
         console.log("✓ File downloaded:", file.fileName);
+        
+        // Show notification as a text message
+        const message: ReceivedMessage = {
+          id: file.transferId,
+          from: file.from,
+          fromName: file.fromName,
+          content: `📎 File received: ${file.fileName} (${(file.fileSize / 1024).toFixed(1)} KB)`,
+          fileName: file.fileName,
+          timestamp: Date.now(),
+          type: "text",
+        };
+        
+        setReceivedMessages((prev) => [...prev, message]);
       }
     });
 
