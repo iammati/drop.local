@@ -26,14 +26,8 @@ interface TransferProgress {
   progress: number;
 }
 
-// Transfer signal callback type
-type TransferSignalCallback = (signal: ReceivedFile | TransferProgress) => void;
-
 // Store device event listeners
 const deviceEventListeners = new Set<DeviceEventCallback>();
-
-// Store transfer signal listeners
-const transferSignalListeners = new Set<TransferSignalCallback>();
 
 // Store file received listeners
 const fileReceivedListeners = new Set<(file: ReceivedFile) => void>();
@@ -57,19 +51,6 @@ export const electroview = new Electroview({
               listener(event);
             } catch (error) {
               console.error("Error in device event listener:", error);
-            }
-          }
-        },
-        // Receive transfer signals from backend
-        onTransferSignal: (signal: any) => {
-          console.log("📡 Received transfer signal:", signal.type, "from", signal.from);
-          
-          // Notify all listeners
-          for (const listener of transferSignalListeners) {
-            try {
-              listener(signal);
-            } catch (error) {
-              console.error("Error in transfer signal listener:", error);
             }
           }
         },
@@ -109,16 +90,6 @@ export function onDeviceEvent(callback: DeviceEventCallback): () => void {
   // Return unsubscribe function
   return () => {
     deviceEventListeners.delete(callback);
-  };
-}
-
-// Export function to subscribe to transfer signals
-export function onTransferSignal(callback: TransferSignalCallback): () => void {
-  transferSignalListeners.add(callback);
-  
-  // Return unsubscribe function
-  return () => {
-    transferSignalListeners.delete(callback);
   };
 }
 
