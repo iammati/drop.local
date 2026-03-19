@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageSquare } from "lucide-react";
+import { X, MessageSquare, FileText, Download, ExternalLink } from "lucide-react";
 import type { ReceivedMessage } from "../../hooks/useFileTransfer-tcp";
 
 interface MessageToastProps {
@@ -21,13 +21,17 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
           >
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <MessageSquare className="w-5 h-5 text-primary" />
+                {message.type === "file" ? (
+                  <FileText className="w-5 h-5 text-primary" />
+                ) : (
+                  <MessageSquare className="w-5 h-5 text-primary" />
+                )}
               </div>
               
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-medium text-foreground">
-                    Message from {message.fromName}
+                    {message.type === "file" ? `File from ${message.fromName}` : `Message from ${message.fromName}`}
                   </p>
                   <button
                     onClick={() => onDismiss(message.id)}
@@ -37,9 +41,51 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
                   </button>
                 </div>
                 
-                <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap">
-                  {message.content}
-                </p>
+                {message.type === "file" ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-2 bg-muted/50 rounded border border-border">
+                      <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {message.fileName}
+                        </p>
+                        {message.fileSize && (
+                          <p className="text-xs text-muted-foreground">
+                            {(message.fileSize / 1024).toFixed(1)} KB
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      {message.fileUrl && (
+                        <>
+                          <a
+                            href={message.fileUrl}
+                            download={message.fileName}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                          >
+                            <Download className="w-3 h-3" />
+                            Download
+                          </a>
+                          <a
+                            href={message.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-secondary text-secondary-foreground rounded hover:bg-secondary/80 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground break-words whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                )}
                 
                 <p className="text-xs text-muted-foreground mt-2">
                   {new Date(message.timestamp).toLocaleTimeString()}

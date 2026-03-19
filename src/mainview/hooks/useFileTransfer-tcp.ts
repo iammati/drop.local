@@ -30,7 +30,10 @@ export interface ReceivedMessage {
   content: string;
   fileName: string;
   timestamp: number;
-  type: "text";
+  type: "text" | "file";
+  fileSize?: number;
+  fileUrl?: string;
+  mimeType?: string;
 }
 
 export function useFileTransfer() {
@@ -66,28 +69,24 @@ export function useFileTransfer() {
         setReceivedMessages((prev) => [...prev, message]);
         console.log("✓ Text message received:", textContent);
       } else {
-        // Auto-download regular files
+        // Create blob URL for file (don't auto-download)
         const blob = new Blob([fileData], { type: file.mimeType });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.fileName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
         
-        console.log("✓ File downloaded:", file.fileName);
+        console.log("✓ File received:", file.fileName);
         
-        // Show notification as a text message
+        // Show notification as a file message
         const message: ReceivedMessage = {
           id: file.transferId,
           from: file.from,
           fromName: file.fromName,
-          content: `📎 File received: ${file.fileName} (${(file.fileSize / 1024).toFixed(1)} KB)`,
+          content: file.fileName,
           fileName: file.fileName,
           timestamp: Date.now(),
-          type: "text",
+          type: "file",
+          fileSize: file.fileSize,
+          fileUrl: url,
+          mimeType: file.mimeType,
         };
         
         setReceivedMessages((prev) => [...prev, message]);
