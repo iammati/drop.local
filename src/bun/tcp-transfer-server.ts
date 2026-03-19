@@ -157,7 +157,9 @@ export class TcpTransferServer {
           this.onTransferCallback(metadata, completeData);
         }
 
-        socket.end();
+        // Don't close socket yet - let sender close it after receiving 100% confirmation
+        // The sender will close the socket when it receives the 100% progress update
+        console.log(`⏳ Waiting for sender to close connection...`);
       }
     });
 
@@ -307,6 +309,7 @@ export class TcpTransferServer {
 
   /**
    * Finish a streaming transfer - waits for receiver confirmation before closing
+   * Event-driven: sender closes socket when it receives 100% progress update
    */
   async finishStreamingTransfer(transferId: string): Promise<void> {
     const stream = this.activeStreams.get(transferId);
@@ -318,19 +321,7 @@ export class TcpTransferServer {
       console.log(`✓ All chunks sent: ${stream.fileName} (${stream.sentBytes} bytes)`);
       console.log(`⏳ Waiting for receiver to confirm 100%...`);
       
-      // Wait for receiver to confirm 100% via progress update
-      // The socket.on("data") handler will close the socket when progress >= 100
-      // If no confirmation after 5 seconds, close anyway
-      const timeout = setTimeout(() => {
-        console.warn(`⚠️ No 100% confirmation received, closing socket anyway`);
-        stream.socket.end(() => {
-          this.activeStreams.delete(transferId);
-          resolve();
-        });
-      }, 5000);
-      
-      // Store timeout so we can clear it if we get 100% confirmation
-      (stream as any).closeTimeout = timeout;
+      // Store resolve callback so socket.on("data") handler can call it when 100% received
       (stream as any).closeResolve = resolve;
     });
   }
@@ -419,14 +410,13 @@ export class TcpTransferServer {
                 });
               }
 
-              // If transfer is complete, close socket
+              // If transfer is complete, close socket (event-driven)
               if (update.progress >= 100) {
                 console.log(`✓ Transfer confirmed complete by receiver: ${fileName}`);
                 
-                // Clear timeout and resolve from finishStreamingTransfer
                 const stream = this.activeStreams.get(transferId);
-                if (stream && (stream as any).closeTimeout) {
-                  clearTimeout((stream as any).closeTimeout);
+                if (stream) {
+                  // Streaming transfer - close socket and resolve
                   socket.end(() => {
                     this.activeStreams.delete(transferId);
                     if ((stream as any).closeResolve) {

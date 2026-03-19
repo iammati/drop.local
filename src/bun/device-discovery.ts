@@ -291,12 +291,12 @@ class DeviceDiscoveryService {
    */
   onDeviceEvent(callback: DeviceEventCallback): () => void {
     this.eventListeners.add(callback);
-    console.log("Device event listener added, total listeners:", this.eventListeners.size);
+    // console.log("Device event listener added, total listeners:", this.eventListeners.size);
     
     // Return unsubscribe function
     return () => {
       this.eventListeners.delete(callback);
-      console.log("Device event listener removed, total listeners:", this.eventListeners.size);
+      // console.log("Device event listener removed, total listeners:", this.eventListeners.size);
     };
   }
 
@@ -308,7 +308,7 @@ class DeviceDiscoveryService {
     device: DiscoveredDevice
   ): void {
     const event = { type, device };
-    console.log(`📡 Emitting event: ${type} for device ${device.name}`);
+    // console.log(`📡 Emitting event: ${type} for device ${device.name}`);
     
     for (const listener of this.eventListeners) {
       try {
