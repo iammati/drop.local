@@ -160,13 +160,18 @@ tcpTransferServer.onTransfer((metadata, data) => {
 	
 	// Don't show toast for files we sent ourselves
 	const localDeviceId = getLocalDeviceId();
+	console.log(`🔍 Loopback check: local=${localDeviceId}, sender=${metadata.from}, match=${metadata.from === localDeviceId}`);
+	
 	if (metadata.from === localDeviceId) {
 		console.log(`⚠️ Ignoring file from self (loopback)`);
 		return;
 	}
 	
 	// Look up device name from device ID
-	const sender = deviceDiscovery.getDevices().find(d => d.id === metadata.from);
+	const allDevices = deviceDiscovery.getDevices();
+	console.log(`🔍 Available devices: ${allDevices.map(d => `${d.id}=${d.name}`).join(', ')}`);
+	
+	const sender = allDevices.find(d => d.id === metadata.from);
 	const fromName = sender ? sender.name : "Unknown";
 	
 	console.log(`📱 Sender device lookup: ${metadata.from} -> ${fromName} (found: ${!!sender})`);

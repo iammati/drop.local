@@ -119,6 +119,11 @@ export class TcpTransferServer {
         receivedData.push(buf);
         receivedBytes += buf.length;
 
+        // Log every 10MB
+        if (receivedBytes % (10 * 1024 * 1024) < buf.length) {
+          console.log(`📦 Received: ${(receivedBytes / 1024 / 1024).toFixed(1)}MB / ${(expectedBytes / 1024 / 1024).toFixed(1)}MB`);
+        }
+
         // Report progress locally
         if (this.onProgressCallback && metadata) {
           this.onProgressCallback({
@@ -145,7 +150,7 @@ export class TcpTransferServer {
       if (metadataReceived && receivedBytes >= expectedBytes) {
         const completeData = Buffer.concat(receivedData);
         
-        console.log(`✓ Transfer complete: ${metadata!.fileName}`);
+        console.log(`✓ Transfer complete: ${metadata!.fileName} (${receivedBytes}/${expectedBytes} bytes)`);
         transferComplete = true;
 
         if (this.onTransferCallback && metadata) {
@@ -169,7 +174,10 @@ export class TcpTransferServer {
     socket.on("close", () => {
       // Check if transfer was incomplete
       if (metadataReceived && !transferComplete) {
-        console.warn(`⚠️ Connection closed with incomplete transfer: ${metadata!.fileName} (${receivedBytes}/${expectedBytes} bytes)`);
+        const missing = expectedBytes - receivedBytes;
+        console.warn(`⚠️ Connection closed with incomplete transfer: ${metadata!.fileName}`);
+        console.warn(`   Received: ${receivedBytes} / ${expectedBytes} bytes`);
+        console.warn(`   Missing: ${missing} bytes (${((missing / expectedBytes) * 100).toFixed(2)}%)`);
         console.log(`🗑️ Discarding partial data to prevent corrupt file`);
         receivedData = []; // Discard partial data
       } else if (transferComplete) {
