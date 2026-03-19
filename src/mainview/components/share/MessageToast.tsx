@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, MessageSquare } from "lucide-react";
-import type { ReceivedMessage } from "../../hooks/useFileTransfer";
+import type { ReceivedMessage } from "../../hooks/useFileTransfer-tcp";
 
 interface MessageToastProps {
   messages: ReceivedMessage[];

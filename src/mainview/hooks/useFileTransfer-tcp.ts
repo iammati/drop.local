@@ -23,7 +23,7 @@ interface TcpTransferProgress {
   progress: number;
 }
 
-interface ReceivedMessage {
+export interface ReceivedMessage {
   id: string;
   from: string;
   content: string;
