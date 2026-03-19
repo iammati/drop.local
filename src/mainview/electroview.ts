@@ -13,6 +13,7 @@ interface ReceivedFile {
   fileSize: number;
   mimeType: string;
   from: string;
+  fromName: string;
   data: number[]; // Array of bytes
 }
 

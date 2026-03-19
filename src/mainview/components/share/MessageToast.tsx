@@ -39,7 +39,7 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-medium text-foreground">
-                    Message from {message.from.substring(0, 8)}...
+                    Message from {message.fromName}
                   </p>
                   <button
                     onClick={() => onDismiss(message.id)}

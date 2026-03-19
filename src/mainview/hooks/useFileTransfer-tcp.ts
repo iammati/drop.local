@@ -26,6 +26,7 @@ interface TcpTransferProgress {
 export interface ReceivedMessage {
   id: string;
   from: string;
+  fromName: string;
   content: string;
   fileName: string;
   timestamp: number;
@@ -55,6 +56,7 @@ export function useFileTransfer() {
         const message: ReceivedMessage = {
           id: file.transferId,
           from: file.from,
+          fromName: file.fromName,
           content: textContent,
           fileName: file.fileName,
           timestamp: Date.now(),

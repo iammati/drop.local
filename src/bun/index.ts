@@ -122,6 +122,10 @@ await tcpTransferServer.start();
 tcpTransferServer.onTransfer((metadata, data) => {
 	console.log(`📥 Received file: ${metadata.fileName} from ${metadata.from}`);
 	
+	// Look up device name from device ID
+	const sender = deviceDiscovery.getDevices().find(d => d.id === metadata.from);
+	const fromName = sender ? sender.name : metadata.from;
+	
 	// Forward to frontend via RPC
 	if (mainWindowRef?.webview?.rpc) {
 		(mainWindowRef.webview.rpc as any).send.onFileReceived({
@@ -130,9 +134,10 @@ tcpTransferServer.onTransfer((metadata, data) => {
 			fileSize: metadata.fileSize,
 			mimeType: metadata.mimeType,
 			from: metadata.from,
+			fromName: fromName,
 			data: Array.from(data),
 		});
-		console.log("✓ File forwarded to frontend");
+		console.log(`✓ File forwarded to frontend from ${fromName}`);
 	}
 });
 
