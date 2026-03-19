@@ -169,7 +169,6 @@ const Index = () => {
                   contents={contents}
                   devices={selectedDevices}
                   onReset={handleReset}
-                  onUndo={handleBackToDeviceSelection}
                   transfers={transfers}
                   isTransferring={isTransferring}
                 />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Check, RotateCcw, Undo2, AlertCircle } from "lucide-react";
+import { Check, RotateCcw, AlertCircle } from "lucide-react";
 import type { SharedContent, Device } from "@/pages/Index";
 import type { TransferProgress } from "../../lib/file-transfer";
 
@@ -8,7 +8,6 @@ interface TransferStatusProps {
   contents: SharedContent[];
   devices: Device[];
   onReset: () => void;
-  onUndo: () => void;
   transfers?: TransferProgress[];
   isTransferring?: boolean;
 }
@@ -17,7 +16,6 @@ export const TransferStatus = ({
   contents,
   devices,
   onReset,
-  onUndo,
   transfers = [],
   isTransferring = false,
 }: TransferStatusProps) => {
@@ -110,20 +108,12 @@ export const TransferStatus = ({
         </p>
       </div>
 
-      {/* Reset and Undo buttons */}
+      {/* Reset button */}
       {done && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-3"
         >
-          <button
-            onClick={onUndo}
-            className="flex items-center gap-2 rounded-xl border border-border bg-card px-5 py-2.5 font-mono text-xs text-foreground transition-colors hover:bg-accent"
-          >
-            <Undo2 className="h-3 w-3" strokeWidth={1.5} />
-            undo
-          </button>
           <button
             onClick={onReset}
             className="flex items-center gap-2 rounded-xl bg-foreground px-5 py-2.5 font-mono text-xs text-primary-foreground transition-opacity hover:opacity-80"
