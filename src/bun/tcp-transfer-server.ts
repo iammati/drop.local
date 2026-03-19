@@ -25,10 +25,19 @@ interface TransferProgress {
   progress: number;
 }
 
+interface StreamingTransfer {
+  socket: Socket;
+  transferId: string;
+  fileName: string;
+  totalSize: number;
+  sentBytes: number;
+}
+
 export class TcpTransferServer {
   private server: Server | null = null;
   private onTransferCallback: ((metadata: TransferMetadata, data: Buffer) => void) | null = null;
   private onProgressCallback: ((progress: TransferProgress) => void) | null = null;
+  private activeStreams: Map<string, StreamingTransfer> = new Map();
 
   async start(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -75,6 +84,7 @@ export class TcpTransferServer {
     let receivedBytes = 0;
     let expectedBytes = 0;
     let metadataReceived = false;
+    let transferComplete = false;
 
     socket.on("data", (chunk) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
@@ -136,6 +146,7 @@ export class TcpTransferServer {
         const completeData = Buffer.concat(receivedData);
         
         console.log(`✓ Transfer complete: ${metadata!.fileName}`);
+        transferComplete = true;
 
         if (this.onTransferCallback && metadata) {
           this.onTransferCallback(metadata, completeData);
@@ -147,10 +158,161 @@ export class TcpTransferServer {
 
     socket.on("error", (err) => {
       console.error("Socket error:", err);
+      
+      // Clean up partial data on error
+      if (metadataReceived && !transferComplete) {
+        console.warn(`⚠️ Transfer interrupted: ${metadata!.fileName} (${receivedBytes}/${expectedBytes} bytes received)`);
+        receivedData = []; // Discard partial data
+      }
     });
 
-    socket.on("end", () => {
-      console.log("Connection closed");
+    socket.on("close", () => {
+      // Check if transfer was incomplete
+      if (metadataReceived && !transferComplete) {
+        console.warn(`⚠️ Connection closed with incomplete transfer: ${metadata!.fileName} (${receivedBytes}/${expectedBytes} bytes)`);
+        console.log(`🗑️ Discarding partial data to prevent corrupt file`);
+        receivedData = []; // Discard partial data
+      } else if (transferComplete) {
+        console.log("Connection closed - transfer was complete");
+      } else {
+        console.log("Connection closed");
+      }
+    });
+  }
+
+  /**
+   * Start a streaming transfer - opens TCP connection and sends metadata
+   * Chunks will be written directly to this socket without buffering
+   */
+  async startStreamingTransfer(
+    transferId: string,
+    recipientIp: string,
+    fileName: string,
+    totalSize: number,
+    mimeType: string,
+    fromDeviceId: string
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      console.log(`🌊 Opening streaming connection to ${recipientIp}:${TRANSFER_PORT}`);
+
+      const socket = connect(TRANSFER_PORT, recipientIp, () => {
+        console.log(`✓ Streaming connection established for ${fileName}`);
+
+        // Send metadata first
+        const metadata: TransferMetadata = {
+          transferId,
+          fileName,
+          fileSize: totalSize,
+          mimeType,
+          from: fromDeviceId,
+          isTextMessage: false,
+        };
+
+        const metadataStr = JSON.stringify(metadata) + "\n";
+        socket.write(metadataStr);
+
+        // Store active stream
+        this.activeStreams.set(transferId, {
+          socket,
+          transferId,
+          fileName,
+          totalSize,
+          sentBytes: 0,
+        });
+
+        resolve();
+      });
+
+      // Listen for progress updates from receiver
+      let progressBuffer = "";
+      socket.on("data", (chunk) => {
+        progressBuffer += chunk.toString();
+        const lines = progressBuffer.split("\n");
+        progressBuffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          
+          try {
+            const update = JSON.parse(line);
+            if (update.type === "progress" && update.transferId === transferId) {
+              // Report real progress from receiver
+              if (this.onProgressCallback) {
+                this.onProgressCallback({
+                  transferId,
+                  fileName,
+                  totalBytes: totalSize,
+                  receivedBytes: update.receivedBytes,
+                  progress: update.progress,
+                });
+              }
+            }
+          } catch (err) {
+            // Ignore parse errors for progress updates
+          }
+        }
+      });
+
+      socket.on("error", (err) => {
+        console.error(`Streaming connection error for ${fileName}:`, err);
+        this.activeStreams.delete(transferId);
+        reject(err);
+      });
+
+      socket.on("close", () => {
+        // Clean up if connection drops before transfer completes
+        if (this.activeStreams.has(transferId)) {
+          console.warn(`⚠️ Connection closed before transfer complete: ${fileName}`);
+          this.activeStreams.delete(transferId);
+        }
+      });
+    });
+  }
+
+  /**
+   * Write a chunk to an active streaming transfer
+   * Chunk is written directly to TCP socket and discarded (no buffering)
+   */
+  async writeChunk(transferId: string, chunk: Buffer): Promise<void> {
+    const stream = this.activeStreams.get(transferId);
+    if (!stream) {
+      throw new Error(`No active stream found for transfer ${transferId}`);
+    }
+
+    return new Promise((resolve, reject) => {
+      const canContinue = stream.socket.write(chunk);
+      stream.sentBytes += chunk.length;
+
+      // Log progress every 10MB
+      if (stream.sentBytes % (10 * 1024 * 1024) < chunk.length) {
+        console.log(`🌊 Streaming: ${(stream.sentBytes / 1024 / 1024).toFixed(1)}MB / ${(stream.totalSize / 1024 / 1024).toFixed(1)}MB`);
+      }
+
+      if (canContinue) {
+        resolve();
+      } else {
+        // Wait for drain event
+        stream.socket.once("drain", () => resolve());
+      }
+    });
+  }
+
+  /**
+   * Finish a streaming transfer - closes TCP connection and cleans up
+   */
+  async finishStreamingTransfer(transferId: string): Promise<void> {
+    const stream = this.activeStreams.get(transferId);
+    if (!stream) {
+      throw new Error(`No active stream found for transfer ${transferId}`);
+    }
+
+    return new Promise((resolve) => {
+      console.log(`✓ Streaming transfer complete: ${stream.fileName} (${stream.sentBytes} bytes)`);
+      
+      stream.socket.end(() => {
+        this.activeStreams.delete(transferId);
+        resolve();
+      });
     });
   }
 

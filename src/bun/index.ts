@@ -68,9 +68,10 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 				
 				return { success: true };
 			},
+			// For small files/text - send directly
 			sendFile: async ({ recipientId, fileName, fileData, mimeType, isTextMessage }) => {
 				const logType = isTextMessage ? "text message" : "file";
-				console.log(`📤 Sending ${logType} ${fileName} to ${recipientId}`);
+				console.log(`📤 Sending ${logType} ${fileName} to ${recipientId} (${fileData.length} bytes)`);
 				
 				const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
 				if (!recipient) {
@@ -88,6 +89,39 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 					isTextMessage
 				);
 
+				return { success: true };
+			},
+			// Streaming chunk upload - writes directly to TCP socket without buffering
+			sendFileChunk: async ({ transferId, chunkData, isFirst, isLast, fileName, totalSize, mimeType, recipientId }) => {
+				if (isFirst) {
+					// First chunk - open TCP connection and send metadata
+					const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
+					if (!recipient) {
+						throw new Error(`Device ${recipientId} not found`);
+					}
+					
+					console.log(`📦 Starting streaming transfer: ${fileName} (${totalSize} bytes) to ${recipient.ip}`);
+					
+					await tcpTransferServer.startStreamingTransfer(
+						transferId,
+						recipient.ip,
+						fileName,
+						totalSize,
+						mimeType || 'application/octet-stream',
+						getLocalDeviceId()
+					);
+				}
+				
+				// Write chunk directly to TCP socket (no buffering)
+				const chunk = Buffer.from(chunkData);
+				await tcpTransferServer.writeChunk(transferId, chunk);
+				
+				if (isLast) {
+					// Last chunk - close TCP connection
+					await tcpTransferServer.finishStreamingTransfer(transferId);
+					console.log(`✓ Streaming transfer complete: ${fileName}`);
+				}
+				
 				return { success: true };
 			},
 		},

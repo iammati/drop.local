@@ -182,18 +182,61 @@ export function useFileTransfer() {
 
           try {
             if (content.type === "file") {
-              // Send file
               const file = content.data as File;
-              const fileData = await file.arrayBuffer();
+              console.log(`📤 Sending file ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) to ${device.name}`);
               
-              console.log(`📤 Sending file ${file.name} to ${device.name}`);
+              // For large files (>5MB), use streaming to avoid memory issues
+              const RPC_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per RPC call
               
-              await (electroview.rpc as any).request.sendFile({
-                recipientId: device.id,
-                fileName: file.name,
-                fileData: Array.from(new Uint8Array(fileData)),
-                mimeType: file.type,
-              });
+              if (file.size > 5 * 1024 * 1024) {
+                console.log(`🌊 Large file detected, using streaming transfer...`);
+                
+                const transferId = `transfer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Stream file in chunks - each chunk written directly to TCP socket
+                let offset = 0;
+                let chunkIndex = 0;
+                const totalChunks = Math.ceil(file.size / RPC_CHUNK_SIZE);
+                
+                while (offset < file.size) {
+                  const slice = file.slice(offset, offset + RPC_CHUNK_SIZE);
+                  const chunkData = await slice.arrayBuffer();
+                  
+                  const isFirst = chunkIndex === 0;
+                  const isLast = offset + RPC_CHUNK_SIZE >= file.size;
+                  
+                  await (electroview.rpc as any).request.sendFileChunk({
+                    transferId,
+                    chunkData: Array.from(new Uint8Array(chunkData)),
+                    isFirst,
+                    isLast,
+                    fileName: file.name,
+                    totalSize: file.size,
+                    mimeType: file.type,
+                    recipientId: device.id,
+                  });
+                  
+                  offset += RPC_CHUNK_SIZE;
+                  chunkIndex++;
+                  
+                  console.log(`🌊 Streamed chunk ${chunkIndex}/${totalChunks}: ${offset}/${file.size} bytes`);
+                  
+                  // Yield to UI thread
+                  await new Promise(resolve => setTimeout(resolve, 0));
+                }
+                
+                console.log(`✓ Streaming transfer complete: ${file.name}`);
+              } else {
+                // Small files - send directly
+                const fileData = await file.arrayBuffer();
+                
+                await (electroview.rpc as any).request.sendFile({
+                  recipientId: device.id,
+                  fileName: file.name,
+                  fileData: Array.from(new Uint8Array(fileData)),
+                  mimeType: file.type,
+                });
+              }
 
               console.log(`✓ Successfully sent file to ${device.name}`);
             } else if (content.type === "text") {
