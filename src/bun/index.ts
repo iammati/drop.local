@@ -158,9 +158,18 @@ await tcpTransferServer.start();
 tcpTransferServer.onTransfer((metadata, data) => {
 	console.log(`📥 Received file: ${metadata.fileName} from ${metadata.from}`);
 	
+	// Don't show toast for files we sent ourselves
+	const localDeviceId = getLocalDeviceId();
+	if (metadata.from === localDeviceId) {
+		console.log(`⚠️ Ignoring file from self (loopback)`);
+		return;
+	}
+	
 	// Look up device name from device ID
 	const sender = deviceDiscovery.getDevices().find(d => d.id === metadata.from);
-	const fromName = sender ? sender.name : metadata.from;
+	const fromName = sender ? sender.name : "Unknown";
+	
+	console.log(`📱 Sender device lookup: ${metadata.from} -> ${fromName} (found: ${!!sender})`);
 	
 	// Forward to frontend via RPC
 	if (mainWindowRef?.webview?.rpc) {

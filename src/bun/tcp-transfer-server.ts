@@ -309,10 +309,13 @@ export class TcpTransferServer {
     return new Promise((resolve) => {
       console.log(`✓ Streaming transfer complete: ${stream.fileName} (${stream.sentBytes} bytes)`);
       
-      stream.socket.end(() => {
-        this.activeStreams.delete(transferId);
-        resolve();
-      });
+      // Wait a bit for receiver to send final progress update
+      setTimeout(() => {
+        stream.socket.end(() => {
+          this.activeStreams.delete(transferId);
+          resolve();
+        });
+      }, 100);
     });
   }
 
