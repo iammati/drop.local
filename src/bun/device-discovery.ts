@@ -23,6 +23,7 @@ const STALE_THRESHOLD = 6000; // 6 seconds - remove devices not seen (3x broadca
 class DeviceDiscoveryService {
   private devices: Map<string, DiscoveredDevice> = new Map();
   private server: any = null;
+  private broadcastClient: any = null; // Persistent UDP socket for broadcasts
   private broadcastInterval: Timer | null = null;
   private cleanupInterval: Timer | null = null;
   private eventListeners: Set<DeviceEventCallback> = new Set();
@@ -220,37 +221,39 @@ class DeviceDiscoveryService {
     return primary?.broadcast || "255.255.255.255";
   }
 
-  private startPeriodicBroadcast(): void {
-    const broadcast = async () => {
-      try {
-        const dgram = await import("dgram");
-        const client = dgram.createSocket({ type: "udp4", reuseAddr: true });
-        
-        // Enable broadcast
-        client.bind(() => {
-          client.setBroadcast(true);
-          
-          const localDevice = this.getLocalDeviceInfo();
-          const message = JSON.stringify({
-            type: "drop-local-announce",
-            id: localDevice.id,
-            name: localDevice.name,
-            deviceType: localDevice.type,
-            port: SERVICE_PORT,
-            timestamp: Date.now(),
-          });
+  private async startPeriodicBroadcast(): Promise<void> {
+    // Create persistent broadcast socket
+    const dgram = await import("dgram");
+    this.broadcastClient = dgram.createSocket({ type: "udp4", reuseAddr: true });
+    
+    await new Promise<void>((resolve) => {
+      this.broadcastClient.bind(() => {
+        this.broadcastClient.setBroadcast(true);
+        resolve();
+      });
+    });
 
-          const buffer = Buffer.from(message);
-          const broadcastAddr = this.getBroadcastAddress();
-          
-          // console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
-          
-          client.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err) => {
-            if (err) {
-              console.error("Broadcast error:", err);
-            }
-            client.close();
-          });
+    const broadcast = () => {
+      try {
+        const localDevice = this.getLocalDeviceInfo();
+        const message = JSON.stringify({
+          type: "drop-local-announce",
+          id: localDevice.id,
+          name: localDevice.name,
+          deviceType: localDevice.type,
+          port: SERVICE_PORT,
+          timestamp: Date.now(),
+        });
+
+        const buffer = Buffer.from(message);
+        const broadcastAddr = this.getBroadcastAddress();
+        
+        // console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
+        
+        this.broadcastClient.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err: any) => {
+          if (err) {
+            console.error("Broadcast error:", err);
+          }
         });
       } catch (err) {
         console.error("Failed to broadcast:", err);
@@ -350,36 +353,42 @@ class DeviceDiscoveryService {
         });
       });
     } catch (err) {
-      console.error("Failed to send goodbye broadcast:", err);
-    }
   }
+}
 
-  async stop(): Promise<void> {
-    console.log("Stopping device discovery service...");
-    
-    // Send goodbye broadcast before shutting down
-    await this.sendGoodbyeBroadcast();
-    
-    // Wait a bit for goodbye to be sent
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    if (this.broadcastInterval) {
-      clearInterval(this.broadcastInterval);
-      this.broadcastInterval = null;
-    }
-    
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
-    
-    if (this.server) {
-      this.server.close();
-      this.server = null;
-    }
-    
-    console.log("Device discovery service stopped");
+async stop(): Promise<void> {
+  console.log("Stopping device discovery...");
+  
+  // Send goodbye broadcast
+  await this.sendGoodbyeBroadcast();
+  
+  // Stop intervals
+  if (this.broadcastInterval) {
+    clearInterval(this.broadcastInterval);
+    this.broadcastInterval = null;
   }
+  
+  if (this.cleanupInterval) {
+    clearInterval(this.cleanupInterval);
+    this.cleanupInterval = null;
+  }
+  
+  // Close broadcast client
+  if (this.broadcastClient) {
+    this.broadcastClient.close();
+    this.broadcastClient = null;
+  }
+  
+  // Close server
+  if (this.server) {
+    this.server.close();
+    this.server = null;
+  }
+  
+  this.devices.clear();
+  console.log("Device discovery service stopped");
+}
+
 }
 
 export const deviceDiscovery = new DeviceDiscoveryService();
