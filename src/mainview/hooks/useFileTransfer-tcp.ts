@@ -47,6 +47,7 @@ export function useFileTransfer() {
   useEffect(() => {
     const unsubscribe = onFileReceived(async (file) => {
       console.log("📥 File received:", file.fileName, "from", file.from);
+      console.log("🔍 Frontend received fromName:", file.fromName);
 
       // Convert array back to Uint8Array
       const fileData = new Uint8Array(file.data);
@@ -203,7 +204,9 @@ export function useFileTransfer() {
                   const chunkData = await slice.arrayBuffer();
                   
                   const isFirst = chunkIndex === 0;
-                  const isLast = offset + RPC_CHUNK_SIZE >= file.size;
+                  // Check if this is the last chunk by seeing if next offset would exceed file size
+                  const nextOffset = offset + RPC_CHUNK_SIZE;
+                  const isLast = nextOffset >= file.size;
                   
                   await (electroview.rpc as any).request.sendFileChunk({
                     transferId,

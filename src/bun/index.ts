@@ -117,9 +117,13 @@ const deviceDiscoveryRPC = BrowserView.defineRPC({
 				await tcpTransferServer.writeChunk(transferId, chunk);
 				
 				if (isLast) {
-					// Last chunk - close TCP connection
-					await tcpTransferServer.finishStreamingTransfer(transferId);
-					console.log(`✓ Streaming transfer complete: ${fileName}`);
+					// Last chunk - finish transfer async (don't wait for 100% confirmation in RPC)
+					// This prevents RPC timeout while waiting for receiver confirmation
+					tcpTransferServer.finishStreamingTransfer(transferId).then(() => {
+						console.log(`✓ Streaming transfer complete: ${fileName}`);
+					}).catch((err) => {
+						console.error(`Failed to finish streaming transfer: ${err}`);
+					});
 				}
 				
 				return { success: true };

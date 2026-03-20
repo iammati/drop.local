@@ -58,6 +58,7 @@ export const electroview = new Electroview({
         // Receive files from backend
         onFileReceived: (file: ReceivedFile) => {
           console.log("📥 Frontend received file:", file.fileName, "from", file.from);
+          console.log("🔍 RPC handler received fromName:", file.fromName);
           
           // Notify all listeners
           for (const listener of fileReceivedListeners) {
