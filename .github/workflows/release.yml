@@ -90,7 +90,7 @@ jobs:
             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple: \
             -s -k actions build.keychain
-          APP=$(find .electrobun -name "*.app" | head -1)
+          APP=$(find build -name "*.app" | head -1)
           codesign --deep --force --options runtime \
             --sign "Developer ID Application: $APPLE_TEAM_ID" "$APP"
           ditto -c -k --keepParent "$APP" "${APP%.app}.zip"
@@ -105,20 +105,23 @@ jobs:
       - name: Package artifact (macOS)
         if: matrix.platform == 'mac'
         run: |
-          APP=$(find .electrobun -name "*.app" | head -1)
+          APP=$(find build -name "*.app" | head -1)
+          if [ -z "$APP" ]; then echo "No .app found"; find build -type f | head -20; exit 1; fi
           ditto -c -k --keepParent "$APP" "${{ matrix.artifact }}.zip"
 
       - name: Package artifact (Linux)
         if: matrix.platform == 'linux'
         run: |
-          BIN=$(find .electrobun -maxdepth 4 -type f -executable | head -1)
+          BIN=$(find build -maxdepth 6 -type f -executable ! -name "*.so" ! -name "*.sh" | head -1)
+          if [ -z "$BIN" ]; then echo "No executable found"; find build -type f | head -20; exit 1; fi
           tar -czf "${{ matrix.artifact }}.tar.gz" -C "$(dirname "$BIN")" "$(basename "$BIN")"
 
       - name: Package artifact (Windows)
         if: matrix.platform == 'win'
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Recurse .electrobun -Filter *.exe | Select-Object -First 1
+          $exe = Get-ChildItem -Recurse build -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "No .exe found"; Get-ChildItem -Recurse build | Select-Object -First 20; exit 1 }
           Compress-Archive -Path $exe.FullName -DestinationPath "${{ matrix.artifact }}.zip"
 
       # ── Upload to GitHub Release ────────────────────────────────────────────
