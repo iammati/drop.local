@@ -14,7 +14,7 @@ Built with [Electrobun](https://blackboard.sh/electrobun) + Bun + React.
 
 | Platform | Architecture |
 |---|---|
-| macOS | arm64, x86_64 |
+| macOS | arm64 (Apple Silicon) |
 | Linux | arm64, x86_64 |
 | Windows | arm64, x86_64 |
 
