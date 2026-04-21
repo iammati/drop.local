@@ -50,12 +50,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          node-version: 24
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -121,14 +122,14 @@ jobs:
       # ── Upload to GitHub Release ────────────────────────────────────────────
       - name: Upload release asset (zip)
         if: matrix.platform == 'mac' || matrix.platform == 'win'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           files: ${{ matrix.artifact }}.zip
           generate_release_notes: true
 
       - name: Upload release asset (tar.gz)
         if: matrix.platform == 'linux'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.3.2
         with:
           files: ${{ matrix.artifact }}.tar.gz
           generate_release_notes: true
