@@ -5,15 +5,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { electroview, onFileReceived, onTransferProgress } from "../electroview";
-import type { SharedContent } from "../pages/Index";
+import type { Device, SharedContent } from "../lib/types";
 import type { TransferProgress as UiTransferProgress } from "../lib/file-transfer";
-
-interface Device {
-  id: string;
-  name: string;
-  type: string;
-  ip: string;
-}
 
 interface TcpTransferProgress {
   transferId: string;
@@ -33,6 +26,7 @@ export interface ReceivedMessage {
   type: "text" | "file";
   fileSize?: number;
   fileUrl?: string;
+  savePath?: string; // Absolute path on disk (set by Bun backend)
   mimeType?: string;
   downloadProgress?: number;
   isDownloading?: boolean;
@@ -82,20 +76,19 @@ export function useFileTransfer() {
           const existingIndex = prev.findIndex((msg) => msg.id === file.transferId);
           
           if (existingIndex !== -1) {
-            // Update existing placeholder message
             const updated = [...prev];
             updated[existingIndex] = {
               ...updated[existingIndex],
               from: file.from,
               fromName: file.fromName,
               fileUrl: url,
+              savePath: file.savePath,
               mimeType: file.mimeType,
               downloadProgress: 100,
               isDownloading: false,
             };
             return updated;
           } else {
-            // Create new message if no placeholder exists
             const message: ReceivedMessage = {
               id: file.transferId,
               from: file.from,
@@ -106,13 +99,12 @@ export function useFileTransfer() {
               type: "file",
               fileSize: file.fileSize,
               fileUrl: url,
+              savePath: file.savePath,
               mimeType: file.mimeType,
               downloadProgress: 100,
               isDownloading: false,
             };
-            // Keep only last 20 messages to prevent memory buildup
-            const newMessages = [...prev, message];
-            return newMessages.slice(-20);
+            return [...prev, message].slice(-20);
           }
         });
       }
@@ -171,43 +163,32 @@ export function useFileTransfer() {
 
   const sendFiles = useCallback(
     async (contents: SharedContent[], devices: Device[]) => {
-      console.log("🚀 sendFiles called with:", contents.length, "contents,", devices.length, "devices");
-
+      console.log(`🚀 sendFiles: ${contents.length} items → ${devices.length} device(s)`);
       setIsTransferring(true);
 
+      // 2MB RPC chunk size — safe within Electrobun IPC limits
+      const RPC_CHUNK_SIZE = 2 * 1024 * 1024;
+
       for (const device of devices) {
-        console.log(`📱 Processing device: ${device.name} (${device.id})`);
-
         for (const content of contents) {
-          console.log(`📄 Processing content: ${content.name} (${content.type})`);
-
           try {
-            if (content.type === "file") {
+            if (content.type === "file" || content.type === "image") {
               const file = content.data as File;
-              console.log(`📤 Sending file ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) to ${device.name}`);
-              
-              // For large files (>5MB), use streaming to avoid memory issues
-              const RPC_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per RPC call
-              
+              console.log(`📤 ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB) → ${device.name}`);
+
               if (file.size > 5 * 1024 * 1024) {
-                console.log(`🌊 Large file detected, using streaming transfer...`);
-                
-                const transferId = `transfer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                
-                // Stream file in chunks - each chunk written directly to TCP socket
+                const transferId = `transfer_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
                 let offset = 0;
                 let chunkIndex = 0;
                 const totalChunks = Math.ceil(file.size / RPC_CHUNK_SIZE);
-                
+
                 while (offset < file.size) {
-                  const slice = file.slice(offset, offset + RPC_CHUNK_SIZE);
-                  const chunkData = await slice.arrayBuffer();
-                  
+                  const end = Math.min(offset + RPC_CHUNK_SIZE, file.size);
+                  const chunkData = await file.slice(offset, end).arrayBuffer();
                   const isFirst = chunkIndex === 0;
-                  // Check if this is the last chunk by seeing if next offset would exceed file size
-                  const nextOffset = offset + RPC_CHUNK_SIZE;
-                  const isLast = nextOffset >= file.size;
-                  
+                  const isLast = end >= file.size;
+
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   await (electroview.rpc as any).request.sendFileChunk({
                     transferId,
                     chunkData: Array.from(new Uint8Array(chunkData)),
@@ -218,21 +199,16 @@ export function useFileTransfer() {
                     mimeType: file.type,
                     recipientId: device.id,
                   });
-                  
-                  offset += RPC_CHUNK_SIZE;
+
+                  offset = end;
                   chunkIndex++;
-                  
-                  console.log(`🌊 Streamed chunk ${chunkIndex}/${totalChunks}: ${offset}/${file.size} bytes`);
-                  
-                  // Yield to UI thread
-                  await new Promise(resolve => setTimeout(resolve, 0));
+                  console.log(`🌊 Chunk ${chunkIndex}/${totalChunks}`);
+                  // Yield to keep UI responsive
+                  await new Promise((r) => setTimeout(r, 0));
                 }
-                
-                console.log(`✓ Streaming transfer complete: ${file.name}`);
               } else {
-                // Small files - send directly
                 const fileData = await file.arrayBuffer();
-                
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 await (electroview.rpc as any).request.sendFile({
                   recipientId: device.id,
                   fileName: file.name,
@@ -241,14 +217,10 @@ export function useFileTransfer() {
                 });
               }
 
-              console.log(`✓ Successfully sent file to ${device.name}`);
+              console.log(`✓ Sent "${file.name}" to ${device.name}`);
             } else if (content.type === "text") {
-              // Send text as file
-              const textContent = content.data as string;
-              console.log(`💬 Starting text transfer to ${device.name}:`, textContent);
-              
-              const textData = new TextEncoder().encode(textContent);
-              
+              const textData = new TextEncoder().encode(content.data as string);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               await (electroview.rpc as any).request.sendFile({
                 recipientId: device.id,
                 fileName: content.name || "text.txt",
@@ -256,16 +228,28 @@ export function useFileTransfer() {
                 mimeType: "text/plain",
                 isTextMessage: true,
               });
-
-              console.log(`✓ Successfully sent text to ${device.name}`);
+              console.log(`✓ Sent text to ${device.name}`);
             }
           } catch (error) {
-            console.error(`✗ Failed to send to ${device.name}:`, error);
+            console.error(`✗ Failed to send "${content.name}" to ${device.name}:`, error);
+            // Mark this transfer as failed in state so UI can show error
+            const failId = `fail_${Date.now()}`;
+            setTransfers((prev) => {
+              const next = new Map(prev);
+              next.set(failId, {
+                transferId: failId,
+                fileName: content.name,
+                totalBytes: (content.data instanceof File ? content.data.size : 0),
+                receivedBytes: 0,
+                progress: -1, // sentinel for failed
+              });
+              return next;
+            });
           }
         }
       }
 
-      console.log("✓ All transfers completed");
+      console.log("✓ All transfers done");
       setIsTransferring(false);
     },
     []
@@ -273,11 +257,9 @@ export function useFileTransfer() {
 
   const clearMessage = useCallback((id: string) => {
     setReceivedMessages((prev) => {
-      // Find the message to clean up blob URL
       const message = prev.find((m) => m.id === id);
       if (message?.fileUrl) {
         URL.revokeObjectURL(message.fileUrl);
-        console.log("🧹 Cleaned up blob URL for:", message.fileName);
       }
       return prev.filter((m) => m.id !== id);
     });
@@ -288,8 +270,9 @@ export function useFileTransfer() {
     fileName: t.fileName,
     totalBytes: t.totalBytes,
     sentBytes: t.receivedBytes,
-    progress: t.progress,
-    status: t.progress >= 100 ? "completed" : "transferring",
+    progress: Math.max(0, t.progress),
+    status: t.progress < 0 ? "failed" : t.progress >= 100 ? "completed" : "transferring",
+    error: t.progress < 0 ? "Transfer failed" : undefined,
   }));
 
   return {

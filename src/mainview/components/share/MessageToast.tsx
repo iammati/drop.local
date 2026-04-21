@@ -9,23 +9,8 @@ interface MessageToastProps {
 }
 
 export function MessageToast({ messages, onDismiss }: MessageToastProps) {
-  // Auto-dismiss toasts after 10 seconds
-  useEffect(() => {
-    if (messages.length === 0) return;
-    
-    const timers = messages.map((message) => {
-      return setTimeout(() => {
-        onDismiss(message.id);
-      }, 10000);
-    });
-    
-    return () => {
-      timers.forEach((timer) => clearTimeout(timer));
-    };
-  }, [messages, onDismiss]);
-
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md max-h-[80vh] overflow-y-auto pr-2">
       <AnimatePresence>
         {messages.map((message) => (
           <motion.div
@@ -90,70 +75,21 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
                     )}
                     
                     {!message.isDownloading && (
-                      <div className="flex gap-2">
-                        {message.fileUrl && (
-                          <>
-                            <button
-                              onClick={() => {
-                                console.log('Download clicked for:', message.fileName);
-                                console.log('File URL:', message.fileUrl);
-                                
-                                if (!message.fileUrl) {
-                                  console.error('No file URL available!');
-                                  return;
-                                }
-                                
-                                const a = document.createElement('a');
-                                a.href = message.fileUrl;
-                                a.download = message.fileName;
-                                document.body.appendChild(a);
-                                console.log('Triggering download...');
-                                a.click();
-                                document.body.removeChild(a);
-                                console.log('Download triggered');
-                                
-                                // Show visual feedback with professional design
-                                const notification = document.createElement('div');
-                                notification.className = 'fixed top-4 right-4 z-[100] cursor-pointer';
-                                notification.innerHTML = `
-                                  <div class="bg-card border border-green-500/20 rounded-lg shadow-xl p-4 min-w-[320px] backdrop-blur-sm animate-in slide-in-from-top-2 duration-300 hover:border-green-500/40 transition-colors">
-                                    <div class="flex items-start gap-3">
-                                      <div class="flex-shrink-0 w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                        </svg>
-                                      </div>
-                                      <div class="flex-1 min-w-0">
-                                        <p class="text-sm font-semibold text-foreground mb-0.5">Download Started</p>
-                                        <p class="text-xs text-muted-foreground truncate">${message.fileName}</p>
-                                        <p class="text-xs text-green-500 mt-1">Click to open file</p>
-                                        <div class="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                                          <div class="h-full bg-green-500 w-full animate-pulse"></div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                `;
-                                
-                                // Make notification clickable to open file
-                                notification.onclick = () => {
-                                  window.open(message.fileUrl, '_blank');
-                                  notification.remove();
-                                };
-                                
-                                document.body.appendChild(notification);
-                                setTimeout(() => {
-                                  notification.style.opacity = '0';
-                                  notification.style.transform = 'translateY(-1rem)';
-                                  notification.style.transition = 'all 0.3s ease-out';
-                                  setTimeout(() => notification.remove(), 300);
-                                }, 3000);
-                              }}
+                      <div className="space-y-1.5">
+                        {message.savePath ? (
+                          <p className="font-mono text-[10px] text-muted-foreground truncate" title={message.savePath}>
+                            Saved to {message.savePath.replace(/.*\/drop\.local\//, "~/Downloads/drop.local/")}
+                          </p>
+                        ) : message.fileUrl ? (
+                          <div className="flex gap-2">
+                            <a
+                              href={message.fileUrl}
+                              download={message.fileName}
                               className="flex items-center gap-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
                             >
                               <Download className="w-3 h-3" />
                               Download
-                            </button>
+                            </a>
                             <a
                               href={message.fileUrl}
                               target="_blank"
@@ -163,8 +99,8 @@ export function MessageToast({ messages, onDismiss }: MessageToastProps) {
                               <ExternalLink className="w-3 h-3" />
                               Preview
                             </a>
-                          </>
-                        )}
+                          </div>
+                        ) : null}
                       </div>
                     )}
                   </div>

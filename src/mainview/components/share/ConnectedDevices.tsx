@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Laptop, Smartphone, Tablet, Monitor, Wifi } from "lucide-react";
-import type { Device } from "@/pages/Index";
+import type { Device } from "@/lib/types";
 
 const DEVICE_ICONS = {
   laptop: Laptop,
@@ -17,17 +17,23 @@ interface ConnectedDevicesProps {
 export const ConnectedDevices = ({ devices }: ConnectedDevicesProps) => {
   const [visible, setVisible] = useState<string[]>([]);
 
+  const timerRefs = useRef<ReturnType<typeof setTimeout>[]>([]);
+
   useEffect(() => {
-    // Reset visible devices when devices change
-    setVisible([]);
-    
-    // Stagger device appearance
-    devices.forEach((d, i) => {
+    timerRefs.current.forEach(clearTimeout);
+    timerRefs.current = [];
+    // Schedule staggered visibility — setState inside async callback is fine
+    const timers = devices.map((d, i) =>
       setTimeout(() => {
         setVisible((prev) => [...prev, d.id]);
-      }, 300 + i * 150);
-    });
-  }, [devices.map(d => d.id).join(',')]);
+      }, 300 + i * 150)
+    );
+    timerRefs.current = timers;
+    return () => {
+      timers.forEach(clearTimeout);
+      setVisible([]);
+    };
+  }, [devices]);
 
   if (devices.length === 0) {
     return (

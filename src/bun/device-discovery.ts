@@ -22,7 +22,9 @@ const STALE_THRESHOLD = 6000; // 6 seconds - remove devices not seen (3x broadca
 
 class DeviceDiscoveryService {
   private devices: Map<string, DiscoveredDevice> = new Map();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private server: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private broadcastClient: any = null; // Persistent UDP socket for broadcasts
   private broadcastInterval: Timer | null = null;
   private cleanupInterval: Timer | null = null;
@@ -153,6 +155,7 @@ class DeviceDiscoveryService {
       const dgram = await import("dgram");
       this.server = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.server.on("message", (msg: Buffer, rinfo: any) => {
         try {
           const data = JSON.parse(msg.toString());
@@ -250,6 +253,7 @@ class DeviceDiscoveryService {
         
         // console.log(`Broadcasting to ${broadcastAddr}:${SERVICE_PORT}`);
         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.broadcastClient.send(buffer, 0, buffer.length, SERVICE_PORT, broadcastAddr, (err: any) => {
           if (err) {
             console.error("Broadcast error:", err);
@@ -353,8 +357,9 @@ class DeviceDiscoveryService {
         });
       });
     } catch (err) {
+      console.error("sendGoodbyeBroadcast error:", err);
+    }
   }
-}
 
 async stop(): Promise<void> {
   console.log("Stopping device discovery...");

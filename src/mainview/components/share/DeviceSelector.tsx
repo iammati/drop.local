@@ -1,5 +1,5 @@
 import { Laptop, Smartphone, Tablet, Monitor, ArrowLeft, X, FileText, Image as ImageIcon, Type, Plus, Check } from "lucide-react";
-import type { SharedContent, Device } from "@/pages/Index";
+import type { SharedContent, Device } from "@/lib/types";
 
 const DEVICE_ICONS = {
   laptop: Laptop,

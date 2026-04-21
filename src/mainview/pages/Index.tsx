@@ -9,25 +9,10 @@ import { ConnectedDevices } from "@/components/share/ConnectedDevices";
 import { MessageToast } from "../components/share/MessageToast";
 import { useDeviceDiscovery } from "../hooks/useDeviceDiscovery";
 import { useFileTransfer } from "../hooks/useFileTransfer-tcp";
+import { electroview } from "../electroview";
+import type { Device, SharedContent, SharedContentCollection } from "@/lib/types";
 
-export type SharedContent = {
-  type: "file" | "text" | "image";
-  name: string;
-  size?: number;
-  preview?: string;
-  data?: File | string;
-};
-
-export type SharedContentCollection = SharedContent[];
-
-export type Device = {
-  id: string;
-  name: string;
-  type: "laptop" | "phone" | "tablet" | "desktop";
-  ip: string;
-  isActive?: boolean;
-  lastSeen?: number;
-};
+export type { Device, SharedContent, SharedContentCollection };
 
 const Index = () => {
   const { devices, isLoading, hasPermission, error } = useDeviceDiscovery();
@@ -35,6 +20,14 @@ const Index = () => {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [contents, setContents] = useState<SharedContent[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<Device[]>([]);
+  const [localName, setLocalName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (electroview?.rpc?.request) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (electroview.rpc as any).request.getLocalDeviceName().then((name: string) => setLocalName(name)).catch(() => {});
+    }
+  }, []);
 
   const handleContent = useCallback((c: SharedContent) => {
     setContents((prev) => [...prev, c]);
@@ -58,23 +51,19 @@ const Index = () => {
     });
   }, []);
 
-  // Auto-deselect devices that go offline
-  useEffect(() => {
-    setSelectedDevices((prev) => 
-      prev.filter((selected) => {
-        const device = devices.find((d) => d.id === selected.id);
-        return device?.isActive ?? false;
-      })
-    );
-  }, [devices]);
+  // Derive active selection — drop devices that went offline
+  const activeSelectedDevices = selectedDevices.filter((selected) => {
+    const device = devices.find((d) => d.id === selected.id);
+    return device?.isActive ?? false;
+  });
 
   const handleProceedToSend = useCallback(() => {
-    if (selectedDevices.length > 0) {
+    if (activeSelectedDevices.length > 0) {
       setStep(3);
       // Start the actual file transfer
-      sendFiles(contents, selectedDevices);
+      sendFiles(contents, activeSelectedDevices);
     }
-  }, [selectedDevices, contents, sendFiles]);
+  }, [activeSelectedDevices, contents, sendFiles]);
 
   const handleReset = useCallback(() => {
     setContents([]);
@@ -118,6 +107,12 @@ const Index = () => {
             local
           </h1>
           <p className="mt-1 font-mono text-xs text-muted-foreground tracking-wide">
+            {localName ? (
+              <>
+                <span className="text-foreground">{localName}</span>
+                <span className="mx-1 opacity-40">·</span>
+              </>
+            ) : null}
             share across your devices
           </p>
         </div>
@@ -157,7 +152,7 @@ const Index = () => {
                 />
               </motion.div>
             )}
-            {step === 3 && contents.length > 0 && selectedDevices.length > 0 && (
+            {step === 3 && contents.length > 0 && activeSelectedDevices.length > 0 && (
               <motion.div
                 key="transfer"
                 initial={{ opacity: 0, x: -20 }}

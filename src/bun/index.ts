@@ -1,11 +1,13 @@
 import { BrowserWindow, BrowserView, Updater } from "electrobun/bun";
+import os from "os";
+import path from "path";
+import { mkdir, writeFile } from "fs/promises";
 import { deviceDiscovery } from "./device-discovery";
 import { tcpTransferServer } from "./tcp-transfer-server";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 
-// Check if Vite dev server is running for HMR
 async function getMainViewUrl(): Promise<string> {
 	const channel = await Updater.localInfo.channel();
 	if (channel === "dev") {
@@ -14,118 +16,107 @@ async function getMainViewUrl(): Promise<string> {
 			console.log(`HMR enabled: Using Vite dev server at ${DEV_SERVER_URL}`);
 			return DEV_SERVER_URL;
 		} catch {
-			console.log(
-				"Vite dev server not running. Run 'bun run dev:hmr' for HMR support.",
-			);
+			console.log("Vite dev server not running. Run 'bun run dev:hmr' for HMR support.");
 		}
 	}
 	return "views://mainview/index.html";
 }
 
-// Get local device ID
-function getLocalDeviceId(): string {
-	const devices = deviceDiscovery.getDevices();
-	// Return the local device ID (we'll need to expose this from device-discovery)
-	return deviceDiscovery.getLocalDeviceId();
+/**
+ * Save received file data to ~/Downloads/drop.local/<fileName>.
+ * Returns the absolute path written.
+ */
+async function saveReceivedFile(fileName: string, data: Buffer): Promise<string> {
+	const downloadsDir = path.join(os.homedir(), "Downloads", "drop.local");
+	await mkdir(downloadsDir, { recursive: true });
+
+	// Avoid clobbering existing files by appending a counter suffix
+	let targetPath = path.join(downloadsDir, fileName);
+	let counter = 1;
+	while (true) {
+		try {
+			await writeFile(targetPath, data, { flag: "wx" }); // fail if exists
+			break;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		} catch (err: any) {
+			if (err.code !== "EEXIST") throw err;
+			const ext = path.extname(fileName);
+			const base = path.basename(fileName, ext);
+			targetPath = path.join(downloadsDir, `${base} (${counter++})${ext}`);
+		}
+	}
+
+	console.log(`💾 Saved to ${targetPath}`);
+	return targetPath;
 }
 
-// Store reference to main window for sending events
 let mainWindowRef: BrowserWindow | null = null;
 
-// Set up RPC for device discovery and file transfer
 const deviceDiscoveryRPC = BrowserView.defineRPC({
 	handlers: {
 		requests: {
 			getDevices: () => {
 				const devices = deviceDiscovery.getDevices();
-				console.log("Frontend requested devices, returning:", devices.length, "devices");
+				console.log("Frontend requested devices:", devices.length);
 				return devices;
 			},
-			getLocalDeviceId: () => {
-				return getLocalDeviceId();
-			},
-			// Subscribe to device events
+			getLocalDeviceId: () => deviceDiscovery.getLocalDeviceId(),
+			getLocalDeviceName: () => os.hostname(),
 			subscribeToDeviceEvents: () => {
 				console.log("Frontend subscribed to device events");
-				
-				// Immediately push current device list
-				if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
-					const currentDevices = deviceDiscovery.getDevices();
-					console.log("Pushing initial device list:", currentDevices.length, "devices");
-					
-					// Send each device as a "device-joined" event
-					for (const device of currentDevices) {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			const rpc = mainWindowRef?.webview?.rpc as any;
+				if (rpc) {
+					for (const device of deviceDiscovery.getDevices()) {
 						try {
-							mainWindowRef.webview.rpc.send.onDeviceEvent({
-								type: "device-joined",
-								device,
-							});
-						} catch (error) {
-							console.error("Failed to send initial device:", error);
+							rpc.send.onDeviceEvent({ type: "device-joined", device });
+						} catch (err) {
+							console.error("Failed to push initial device:", err);
 						}
 					}
 				}
-				
 				return { success: true };
 			},
-			// For small files/text - send directly
 			sendFile: async ({ recipientId, fileName, fileData, mimeType, isTextMessage }) => {
 				const logType = isTextMessage ? "text message" : "file";
-				console.log(`📤 Sending ${logType} ${fileName} to ${recipientId} (${fileData.length} bytes)`);
-				
-				const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
-				if (!recipient) {
-					throw new Error(`Device ${recipientId} not found`);
-				}
+				console.log(`📤 Sending ${logType} "${fileName}" to ${recipientId} (${fileData.length} bytes)`);
 
-				const fileBuffer = Buffer.from(fileData);
-				
+				const recipient = deviceDiscovery.getDevices().find((d) => d.id === recipientId);
+				if (!recipient) throw new Error(`Device ${recipientId} not found`);
+
 				await tcpTransferServer.sendFile(
 					recipient.ip,
 					fileName,
-					fileBuffer,
+					Buffer.from(fileData),
 					mimeType,
-					getLocalDeviceId(),
+					deviceDiscovery.getLocalDeviceId(),
 					isTextMessage
 				);
-
 				return { success: true };
 			},
-			// Streaming chunk upload - writes directly to TCP socket without buffering
 			sendFileChunk: async ({ transferId, chunkData, isFirst, isLast, fileName, totalSize, mimeType, recipientId }) => {
 				if (isFirst) {
-					// First chunk - open TCP connection and send metadata
-					const recipient = deviceDiscovery.getDevices().find(d => d.id === recipientId);
-					if (!recipient) {
-						throw new Error(`Device ${recipientId} not found`);
-					}
-					
-					console.log(`📦 Starting streaming transfer: ${fileName} (${totalSize} bytes) to ${recipient.ip}`);
-					
+					const recipient = deviceDiscovery.getDevices().find((d) => d.id === recipientId);
+					if (!recipient) throw new Error(`Device ${recipientId} not found`);
+					console.log(`📦 Starting streaming: "${fileName}" (${totalSize} bytes) → ${recipient.ip}`);
 					await tcpTransferServer.startStreamingTransfer(
 						transferId,
 						recipient.ip,
 						fileName,
 						totalSize,
-						mimeType || 'application/octet-stream',
-						getLocalDeviceId()
+						mimeType || "application/octet-stream",
+						deviceDiscovery.getLocalDeviceId()
 					);
 				}
-				
-				// Write chunk directly to TCP socket (no buffering)
-				const chunk = Buffer.from(chunkData);
-				await tcpTransferServer.writeChunk(transferId, chunk);
-				
+
+				await tcpTransferServer.writeChunk(transferId, Buffer.from(chunkData));
+
 				if (isLast) {
-					// Last chunk - finish transfer async (don't wait for 100% confirmation in RPC)
-					// This prevents RPC timeout while waiting for receiver confirmation
-					tcpTransferServer.finishStreamingTransfer(transferId).then(() => {
-						console.log(`✓ Streaming transfer complete: ${fileName}`);
-					}).catch((err) => {
-						console.error(`Failed to finish streaming transfer: ${err}`);
-					});
+					// Fire-and-forget: don't block the RPC call waiting for 100% ack
+					tcpTransferServer.finishStreamingTransfer(transferId)
+						.then(() => console.log(`✓ Streaming complete: "${fileName}"`))
+						.catch((err) => console.error(`✗ Streaming failed: ${err}`));
 				}
-				
 				return { success: true };
 			},
 		},
@@ -158,50 +149,52 @@ mainWindow.show();
 console.log("Starting TCP transfer server...");
 await tcpTransferServer.start();
 
-// Handle incoming file transfers
-tcpTransferServer.onTransfer((metadata, data) => {
-	console.log(`📥 Received file: ${metadata.fileName} from ${metadata.from}`);
-	
-	// Don't show toast for files we sent ourselves
-	const localDeviceId = getLocalDeviceId();
-	console.log(`🔍 Loopback check: local=${localDeviceId}, sender=${metadata.from}, match=${metadata.from === localDeviceId}`);
-	
+// Handle incoming file/text transfers
+tcpTransferServer.onTransfer(async (metadata, data) => {
+	console.log(`📥 Received: "${metadata.fileName}" from ${metadata.from}`);
+
+	const localDeviceId = deviceDiscovery.getLocalDeviceId();
 	if (metadata.from === localDeviceId) {
-		console.log(`⚠️ Ignoring file from self (loopback)`);
+		console.log(`⚠️ Ignoring loopback transfer`);
 		return;
 	}
-	
-	// Look up device name from device ID
-	const allDevices = deviceDiscovery.getDevices();
-	console.log(`🔍 Available devices: ${allDevices.map(d => `${d.id}=${d.name}`).join(', ')}`);
-	
-	const sender = allDevices.find(d => d.id === metadata.from);
-	const fromName = sender ? sender.name : "Unknown";
-	
-	console.log(`📱 Sender device lookup: ${metadata.from} -> ${fromName} (found: ${!!sender})`);
-	
-	// Forward to frontend via RPC
-	if (mainWindowRef?.webview?.rpc) {
-		(mainWindowRef.webview.rpc as any).send.onFileReceived({
+
+	const sender = deviceDiscovery.getDevices().find((d) => d.id === metadata.from);
+	const fromName = sender?.name ?? "Unknown";
+
+	// Save non-text files to ~/Downloads/drop.local/
+	let savePath: string | undefined;
+	if (!metadata.isTextMessage) {
+		try {
+			savePath = await saveReceivedFile(metadata.fileName, data);
+		} catch (err) {
+			console.error(`✗ Failed to save "${metadata.fileName}":`, err);
+		}
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const rpc = mainWindowRef?.webview?.rpc as any;
+	if (rpc) {
+		rpc.send.onFileReceived({
 			transferId: metadata.transferId,
 			fileName: metadata.fileName,
 			fileSize: metadata.fileSize,
 			mimeType: metadata.mimeType,
 			from: metadata.from,
-			fromName: fromName,
+			fromName,
 			isTextMessage: metadata.isTextMessage,
+			savePath,
 			data: Array.from(data),
 		});
-		const msgType = metadata.isTextMessage ? "text message" : "file";
-		console.log(`✓ ${msgType} forwarded to frontend from ${fromName}`);
+		console.log(`✓ ${metadata.isTextMessage ? "Text message" : "File"} forwarded to frontend from ${fromName}`);
 	}
 });
 
-// Handle transfer progress
+// Forward transfer progress to frontend
 tcpTransferServer.onProgress((progress) => {
-	if (mainWindowRef?.webview?.rpc) {
-		(mainWindowRef.webview.rpc as any).send.onTransferProgress(progress);
-	}
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const rpc = mainWindowRef?.webview?.rpc as any;
+	rpc?.send.onTransferProgress(progress);
 });
 
 // Start device discovery service
@@ -210,12 +203,12 @@ await deviceDiscovery.start();
 
 // Forward device events to frontend in real-time
 deviceDiscovery.onDeviceEvent((event) => {
-	if (mainWindowRef && mainWindowRef.webview && mainWindowRef.webview.rpc) {
-		try {
-			mainWindowRef.webview.rpc.send.onDeviceEvent(event);
-		} catch (error) {
-			console.error("Failed to send device event to frontend:", error);
-		}
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const rpc = mainWindowRef?.webview?.rpc as any;
+	try {
+		rpc?.send.onDeviceEvent(event);
+	} catch (err) {
+		console.error("Failed to send device event to frontend:", err);
 	}
 });
 

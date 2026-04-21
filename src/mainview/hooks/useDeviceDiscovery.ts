@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { Device } from "../pages/Index";
+import type { Device } from "../lib/types";
 import { electroview, onDeviceEvent } from "../electroview";
 
 interface DiscoveredDevice {

@@ -1,6 +1,8 @@
 import { useCallback, useState, useRef, type DragEvent } from "react";
 import { Upload, FileText, Image, Type, Clipboard } from "lucide-react";
-import type { SharedContent } from "@/pages/Index";
+import type { SharedContent } from "@/lib/types";
+
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
 interface DropZoneProps {
   onContent: (content: SharedContent) => void;
@@ -137,7 +139,7 @@ export const DropZone = ({ onContent }: DropZoneProps) => {
         <p className="mt-1 text-xs text-muted-foreground">
           or press{" "}
           <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-            ⌘V
+            {isMac ? "⌘V" : "Ctrl+V"}
           </kbd>{" "}
           to paste from clipboard
         </p>
